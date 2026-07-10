@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="light" />
+    <title>Family Calendar</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      #app {
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Mount point 2. Old tablets load this page directly and never boot the HA
+      frontend, so HA's sliding browserslist can't evict them.
+    -->
+    <div id="app"></div>
+    <script type="module" src="/src/standalone.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+node_modules/
+
+# Git Bash on Windows drops these
+*.stackdump
+
+# HA writes its database, logs, secrets and .storage into the dev config dir.
+# Keep the one file we author, ignore everything else it generates.
+dev/config/*
+!dev/config/configuration.yaml
+
+# Build output lands inside the ignored dev config tree, but be explicit.
+dev/config/www/

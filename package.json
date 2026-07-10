@@ -1,0 +1,25 @@
+{
+  "name": "hacalendar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Family calendar + chores panel for Home Assistant",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "watch": "vite build --watch",
+    "typecheck": "tsc --noEmit",
+    "ha:up": "docker compose -f dev/docker-compose.yml up -d",
+    "ha:down": "docker compose -f dev/docker-compose.yml down",
+    "ha:logs": "docker compose -f dev/docker-compose.yml logs -f homeassistant"
+  },
+  "dependencies": {
+    "home-assistant-js-websocket": "^9.6.0",
+    "lit": "^3.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.4"
+  }
+}

@@ -1,0 +1,25 @@
+# Disposable dev instance. This is HA *Container* -- no Supervisor, no add-on
+# store. That's fine here; the calendar needs neither. Production is HA OS on
+# the Pi, which does have both.
+
+# The HA instance is "nolanhaus" -- the household's smart home, of which this
+# calendar is only the first tenant. Cameras and automation land here later.
+# Without this, Compose would name the project after the directory ("dev").
+name: nolanhaus
+
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: nolanhaus-ha-dev
+    volumes:
+      # `npm run watch` writes the bundle straight into config/www/hacalendar,
+      # which HA serves at /local/hacalendar/.
+      - ./config:/config
+    ports:
+      - "8123:8123"
+    restart: unless-stopped
+    environment:
+      # Must match the household's real timezone. This is load-bearing: all-day
+      # events arrive as bare `YYYY-MM-DD`, and any UTC-vs-local parsing bug
+      # only manifests west of Greenwich. Central is UTC-5/-6.
+      - TZ=America/Chicago

@@ -1,0 +1,26 @@
+homeassistant:
+  # The household instance. The calendar is its first tenant, not its purpose.
+  name: Nolanhaus
+
+default_config:
+
+http:
+  cors_allowed_origins:
+    # Lets `npm run dev` (Vite on :5173) talk to this instance.
+    - http://localhost:5173
+
+# Mount point 1: the panel inside HA's frontend.
+# `name` must equal the custom element tag registered in src/panel.ts.
+panel_custom:
+  - name: hacalendar-panel
+    sidebar_title: Family Calendar
+    sidebar_icon: mdi:calendar-heart
+    url_path: family-calendar
+    module_url: /local/hacalendar/panel.js
+    require_admin: false
+    config:
+      entity_id: calendar.family
+
+# local_calendar is config-flow only -- it cannot be set up from YAML.
+# After first boot: Settings → Devices & Services → Add Integration →
+# "Local Calendar", name it "Family". That yields calendar.family.
