@@ -116,9 +116,10 @@ does not always inherit the container's `TZ`; they must agree.
 
 ## Decision log health
 
-`docs/DECISIONS.md` holds 22 accepted ADRs. None superseded. The ones most
-likely to be wrongly "corrected" by a future agent, because they contradict
-HA's own documentation or look like over-engineering:
+`docs/DECISIONS.md` holds 23 ADRs. **[ADR-0006] is superseded by [ADR-0023]**
+(server moved from a headless Pi to the always-on laptop; the Pi is now a kiosk
+client). The ones most likely to be wrongly "corrected" by a future agent,
+because they contradict HA's own documentation or look like over-engineering:
 
 - **[ADR-0001]** — the docs do not tell you that Google and CalDAV are
   create-only. You must read the source.
@@ -147,6 +148,8 @@ HA's own documentation or look like over-engineering:
 [ADR-0017]: DECISIONS.md#adr-0017
 [ADR-0019]: DECISIONS.md#adr-0019
 [ADR-0020]: DECISIONS.md#adr-0020
+[ADR-0006]: DECISIONS.md#adr-0006
 [ADR-0021]: DECISIONS.md#adr-0021
 [ADR-0022]: DECISIONS.md#adr-0022
+[ADR-0023]: DECISIONS.md#adr-0023
 [Phase 1]: PLAN.md#phase-1--live-month-view--current

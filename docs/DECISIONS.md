@@ -151,7 +151,12 @@ subscription.
 
 **Production is two devices: HA OS headless + a separate kiosk device.**
 
-Status: **Accepted** · 2026-07-09
+Status: **Superseded by [ADR-0023]** · 2026-07-09
+
+> Superseded 2026-07-12. The server moved off the Pi and onto an existing
+> always-on laptop; the Pi became a thin kiosk client instead of the server.
+> The core *fact* below still holds — HA OS can't drive an attached display —
+> but the chosen topology changed. See [ADR-0023]. Retained for the reasoning.
 
 **Home Assistant OS only outputs a boot console on HDMI.** It has no desktop
 and no browser. A Pi running HA OS with a touchscreen attached displays a login
@@ -261,15 +266,20 @@ iCloud is the primary sync target; the household is Apple-centric.
 
 **Development uses HA Container in Docker on a laptop.**
 
-Status: **Accepted** · 2026-07-09
+Status: **Accepted; scope widened by [ADR-0023]** · 2026-07-09
 
 `dev/docker-compose.yml` runs `ghcr.io/home-assistant/home-assistant:stable`
 with `dev/config` mounted. `vite build` writes straight into
 `dev/config/www/hacalendar/`, which HA serves at `/local/hacalendar/`.
 
 HA Container has **no Supervisor and no add-on store**. Neither is needed for
-the calendar. Production is HA OS ([ADR-0006]) and does have both. Do not be
-confused when the dev instance lacks an add-on tab.
+the calendar.
+
+> Updated 2026-07-12. This Docker-Container setup is now **also production**
+> ([ADR-0023]), not just dev — the same always-on laptop serves the household.
+> The "no add-on store" note therefore stops being a dev-only quirk and becomes
+> a permanent architectural fact: add-on-style software (e.g. Frigate for
+> cameras) must run as its own container alongside HA, not from within it.
 
 ---
 
@@ -578,6 +588,61 @@ surface.
 
 ---
 
+## ADR-0023
+
+**The server is an always-on laptop running HA Container. The Pi and tablets are thin browser clients.**
+
+Status: **Accepted** · 2026-07-12 · supersedes [ADR-0006], widens [ADR-0011]
+
+HA is client–server. The server holds all state and logic; every display — the
+wall touchscreen, tablets, phones — is just a browser loading the dashboard the
+server serves. Nothing but the server needs to be powerful or trusted.
+
+[ADR-0006] put the server on a Pi (HA OS, headless) with a *separate* kiosk
+device for the screen, because HA OS can't drive an attached display. The user
+already runs an **always-on laptop configured never to sleep**, which is a
+strictly better server than a Pi: more CPU for camera decoding, already
+provisioned, already reliable.
+
+So the topology is:
+
+| Role | Device |
+|---|---|
+| **Server** | the always-on laptop — HA Container in Docker ([ADR-0011]) |
+| **Wall touchscreen** | Raspberry Pi running a normal OS + Chromium kiosk, pointed at the laptop |
+| **Tablets / phones** | browsers, pointed at the laptop |
+
+This is cleaner than [ADR-0006]: the Pi does the one thing a Pi is good at —
+fullscreen Chromium — instead of being a headless server that then needs a
+second device bolted on. Same device count, one fewer awkward constraint. It
+also keeps camera decoding on the laptop and off the box compositing the
+browser, which was a goal of [ADR-0006] and still holds.
+
+**The always-on concern is resolved, not ignored.** A Windows laptop is normally
+a poor 24/7 server (sleep, forced-reboot updates, Docker Desktop wanting a login
+session). This one is already configured against sleep and runs continuously, so
+the standard objection doesn't apply. If that ever changes, this ADR is at risk
+— the whole house depends on that laptop staying up.
+
+**Consequences.**
+
+- Production has **no add-on store** ([ADR-0011]). Add-on-style software —
+  Frigate (camera NVR/object detection) is the common one — runs as its own
+  Docker container beside HA, wired via config, not installed through HA.
+- **Backups are manual.** HA OS gives one-click snapshots; Docker does not. Back
+  up the `config/` volume on a schedule. This is the biggest thing lost versus
+  [ADR-0006], and it matters because `local_calendar` and every chore live in
+  that volume ([ADR-0001], [ADR-0009]).
+- **Migration stays open.** HA's backup/restore moves the entire instance to new
+  hardware in one file. Starting on the laptop commits to nothing; a move to a
+  Pi/mini-PC on HA OS later is a restore, not a rebuild.
+- The `dev/` directory is now a misnomer — it's the real config. Left as-is for
+  now to avoid churn; a future rename to `server/` or `ha/` is reasonable.
+- The whole house is one laptop's uptime. Accepted, given it's a real 24/7
+  server. Revisit if it ever becomes a daily-driver machine again.
+
+---
+
 [ADR-0001]: #adr-0001
 [ADR-0002]: #adr-0002
 [ADR-0003]: #adr-0003
@@ -594,5 +659,6 @@ surface.
 [ADR-0017]: #adr-0017
 [ADR-0018]: #adr-0018
 [ADR-0021]: #adr-0021
+[ADR-0023]: #adr-0023
 [Phase 1]: PLAN.md#phase-1--live-month-view--current
 [Phase 4]: PLAN.md#phase-4--recurring-chores

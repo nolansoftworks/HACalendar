@@ -175,16 +175,21 @@ convention we can relax.
 
 ## Phase 5 — Deployment
 
-- [ ] HA OS on the Pi, headless ([ADR-0006])
-- [ ] Second device, Chromium kiosk, autostart, pointed at `/family-calendar`,
-      idling on the Today view ([ADR-0020])
-- [ ] Screen blanking / wake-on-touch
-- [ ] Ship the bundle as a real artifact, not a `dev/` build output
-- [ ] Backup strategy for `local_calendar`'s `.ics`
+Server is the always-on laptop; the Pi is a kiosk client ([ADR-0023]). Much of
+this is already true — the server *is* the dev instance — so "deployment" here is
+mostly the kiosk and the backup story, not standing up a new box.
+
+- [ ] Raspberry Pi: normal OS + Chromium kiosk, autostart, pointed at
+      `http://<laptop>:8123/family-calendar`, idling on the Today view
+      ([ADR-0020])
+- [ ] Screen blanking / wake-on-touch on the Pi
+- [ ] **Scheduled backup of the `config/` volume** — no HA OS snapshots on
+      Container ([ADR-0023]); `local_calendar` and chores live in that volume
+- [ ] Container `restart: unless-stopped` verified across a laptop reboot
 - [ ] **Test on a real Fire OS 7 tablet** — the first true check of [ADR-0003]
 
-**Exit criterion:** the calendar survives a Pi reboot and an HA upgrade
-untouched.
+**Exit criterion:** the calendar survives a laptop reboot and an HA image
+upgrade untouched, and the wall Pi returns to the Today view on its own.
 
 ---
 
@@ -242,3 +247,4 @@ an event deleted on the iPhone disappears from the wall panel.
 [ADR-0020]: DECISIONS.md#adr-0020
 [ADR-0021]: DECISIONS.md#adr-0021
 [ADR-0022]: DECISIONS.md#adr-0022
+[ADR-0023]: DECISIONS.md#adr-0023

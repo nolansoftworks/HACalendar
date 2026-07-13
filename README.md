@@ -129,9 +129,19 @@ persisted to `localStorage` afterward.
 
 ## Production topology
 
-HA OS on the Pi, headless (keeps Supervisor, add-ons, backups). A **second**
-device drives the touchscreen in Chromium kiosk mode, pointed at the panel URL.
+HA is client–server. The **server** is an always-on laptop running HA Container
+in Docker; every screen is just a browser pointed at it
+([ADR-0023](docs/DECISIONS.md#adr-0023)).
 
-HA OS only outputs a boot console on HDMI — it has no desktop and cannot render
-a dashboard on an attached monitor. A Pi running HA OS with a touchscreen shows
-you a login prompt, forever. Hence two devices.
+| Role | Device |
+|---|---|
+| Server | always-on laptop, HA Container in Docker |
+| Wall touchscreen | Raspberry Pi, normal OS + Chromium kiosk |
+| Tablets / phones | browsers |
+
+The laptop is configured never to sleep, which is what makes a laptop viable as
+a 24/7 server. Two things to know about running HA Container rather than HA OS:
+**no add-on store** (Frigate-style camera software runs as its own container
+beside HA), and **no one-click backups** (back up the `config/` volume on a
+schedule — `local_calendar` and every chore live there). Migration to HA OS on
+dedicated hardware later is a backup-restore, not a rebuild.

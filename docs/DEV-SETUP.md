@@ -8,9 +8,13 @@ The HA instance is **Nolanhaus** — the household's smart home. This calendar i
 its first tenant, not its purpose; cameras and automation move in later.
 Compose project: `nolanhaus`. Container: `nolanhaus-ha-dev`.
 
-This is **HA Container** — no Supervisor, no add-on store ([ADR-0011]). Neither
-is needed here. Production is HA OS on the Pi ([ADR-0006]) and has both. Don't
-be alarmed when this instance has no add-on tab.
+This same Docker setup is **both dev and production** — the always-on laptop is
+the real server ([ADR-0023]). It's **HA Container**, so there's **no Supervisor
+and no add-on store** ([ADR-0011]); that's not a dev quirk, it's permanent. Two
+consequences worth remembering as the house grows: add-on-style software
+(Frigate for cameras) runs as its own container beside HA, and there are no
+one-click backups — schedule a backup of the `config/` volume, since
+`local_calendar` and every chore live there.
 
 ---
 
