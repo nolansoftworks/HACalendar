@@ -1,6 +1,8 @@
-# Disposable dev instance. This is HA *Container* -- no Supervisor, no add-on
-# store. That's fine here; the calendar needs neither. Production is HA OS on
-# the Pi, which does have both.
+# This is HA *Container* -- no Supervisor, no add-on store. Per ADR-0023 the
+# always-on laptop running this is BOTH dev and production; there is no separate
+# HA OS box. Consequences: add-on-style software (e.g. Frigate) runs as its own
+# container beside this one, and backups are manual -- schedule a copy of
+# ./config, since local_calendar and every chore live in it.
 
 # The HA instance is "nolanhaus" -- the household's smart home, of which this
 # calendar is only the first tenant. Cameras and automation land here later.
