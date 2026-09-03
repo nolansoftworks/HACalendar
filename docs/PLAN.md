@@ -106,12 +106,23 @@ their correct dates.
 - A per-person calendar that 404s is **soft-failed**: the other calendars still
   render and the grid shows a small warning naming the bad entity. A blank
   calendar in the kitchen is worse than an incomplete one.
-- The roster ships empty. Populating it needs real household names, and
-  `public/people.example.json` shows the shape.
+- The roster is populated: Brittany, Ben, Grayson, Paxtyn, Emersyn, each with
+  a `calendar.<id>` created over the scriptable config flow (`CLAUDE.md`
+  gotcha 5). No one touched the HA UI.
+- Colors were chosen dark enough that `readableTextOn()` returns white for all
+  five, so chip text is uniform rather than flipping between black and white.
+- Verified with all six calendars live and one event per person on the **same
+  day**: every chip took its owner's color, the all-day event sorted above the
+  timed ones, and hiding everyone except Paxtyn left exactly his event.
 
-**Still to do before this is useful to the household:** create the actual
-`calendar.<person>` entities and fill in `public/people.json`. The config flow
-is scriptable (see `CLAUDE.md` gotcha 5), so this needs names, not clicks.
+**Chore lists are deliberately absent from the roster.** `choreList` stays
+unset until Phase 3 creates the `todo.chores_<kid>` entities — pointing the
+roster at entities that don't exist would be aspirational config, and
+[ADR-0021] makes both fields optional precisely so this can be staged.
+
+**Note:** `public/people.json` is a build artifact — Vite copies it from
+`public/` into `www/`, and `emptyOutDir` wipes anything hand-edited there. A
+roster change is a commit plus a deploy, not an edit on the server.
 
 ---
 

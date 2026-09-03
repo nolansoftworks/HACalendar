@@ -2,8 +2,7 @@
 
 **Last updated:** 2026-09-03
 **Current phase:** Phase 2 — Event CRUD (`docs/PLAN.md`)
-**Blocked on:** the household roster — real names, to create per-person
-calendars and fill in `public/people.json` (see *Next action*)
+**Blocked on:** nothing. Roster is populated and all six calendars exist.
 
 Keep this file honest. The single most useful thing it does is separate what
 has been **observed** from what has only been **built**. A passing typecheck is
@@ -13,21 +12,17 @@ not evidence that a feature works.
 
 ## Next action
 
-Phases 1 and 1.5 are closed and verified against the live instance. Two things
-gate what comes next, and the first needs a human answer, not a click:
+Phases 1 and 1.5 are closed and verified against the live instance, and the
+roster is populated. **Phase 2 — event CRUD — is next**, and its write path is
+already proven at the protocol level (create, update, `THISANDFUTURE`, and
+single-instance delete all round-trip), so it is a UI problem rather than a
+protocol one. Note [ADR-0024]: writes take `dtstart`/`dtend`, and
+`toWireEvent()` is the only place that may say so.
 
-**1. The roster.** `public/people.json` ships empty, so the overlay currently
-degrades to `calendar.family` alone — correct behaviour, but not yet useful.
-It needs the household's real members: a stable `id` (logbook-facing, never
-renamed), a display name, and a color. See `public/people.example.json` for
-the shape and [ADR-0021] for why this is app config rather than derived from
-entities. Once the names exist, the per-person calendars can be created from a
-script — the config flow is drivable over the REST API (`CLAUDE.md` gotcha 5),
-so this no longer needs anyone in the HA UI.
-
-**2. Deploying to the server.** HA serves the bundle from the **server's**
-checkout of this repo, not from any developer machine. After pulling, on the
-server:
+**Deploying to the server.** HA serves the bundle from the **server's**
+checkout of this repo, not from any developer machine. `public/people.json` is
+copied into `www/` by the build and `emptyOutDir` wipes hand edits there, so a
+roster change means a deploy. After pulling, on the server:
 
 ```bash
 npm install
@@ -83,6 +78,9 @@ Things actually observed, with the check that produced them.
 | **Multi-calendar overlay, colors, filters** | two throwaway calendars: `rgb(232, 89, 12)` and `rgb(95, 61, 196)` chips on the same day; toggling one hid only its events |
 | **`weekStartsOn` drives the grid** | flipping to `1` gave Mon–Sun headings and opened on Aug 31; events stayed on their dates |
 | **Grid maths unit-tested** | 18 `node:test` assertions, passing in UTC, Central, Tokyo and London |
+| **Six calendars overlay correctly** | `calendar.family` + Brittany/Ben/Grayson/Paxtyn/Emersyn, one event each on the same day, every chip its owner's color |
+| **Per-person isolation works** | hiding all but Paxtyn left exactly his event; the shared calendar hides with its own chip |
+| **Per-person calendars created without the HA UI** | all five made over the config-flow REST API |
 
 ---
 
