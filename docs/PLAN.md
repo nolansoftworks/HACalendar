@@ -132,16 +132,42 @@ Touch-first create / edit / delete. This is the phase that actually replaces
 the dry-erase board — until it lands, the app is read-only and useless to the
 household.
 
-- [ ] The **"who is this for?" picker** ([ADR-0018]) — build it here, reuse it
-      in Phase 3 twice. It selects the target `calendar.<person>`.
-- [ ] Tap a day → create event (summary, start, end, all-day toggle)
-- [ ] Tap an event → edit / delete
-- [ ] Recurring events: `THISANDFUTURE` vs single-instance on edit and delete
-- [ ] Optimistic UI, with rollback on websocket error
+- [x] The **"who is this for?" picker** ([ADR-0018]) — `src/ui/person-picker.ts`,
+      built generic so Phase 3 can reuse it for the other two questions.
+- [x] Tap a day → create event (summary, start, end, all-day toggle)
+- [x] Tap an event → edit / delete
+- [x] Recurring events: `THISANDFUTURE` vs single-instance on edit and delete
+- [x] Optimistic UI, with rollback on websocket error
 - [ ] On-screen keyboard doesn't occlude the dialog (real tablet, not emulator)
 
-**Exit criterion:** a non-technical adult adds, edits, and deletes an event on
-the touchscreen without help or instruction.
+**Code complete, exit criterion NOT met.** Everything above except the keyboard
+was driven end to end in headless Chrome against the live instance: creating an
+event on a tapped day wrote it to the picked person's calendar and rendered in
+their color; renaming persisted; the inclusive end date became HA's exclusive
+one; delete required a second tap and only then removed it. On the recurring
+series, "only this one" renamed exactly one instance while `THISANDFUTURE`
+changed that instance and all later ones and left the earlier exception intact.
+Deleting an event behind the UI's back and then saving produced a rollback, an
+error, and no write.
+
+**The exit criterion is deliberately still open**, because it is about a person,
+not a protocol: *a non-technical adult adds, edits, and deletes an event on the
+touchscreen without help or instruction.* Nobody has tried. So is the keyboard
+item — the sheet is top-anchored with `max-height: 92vh` and its own scroll
+precisely so a shrinking visual viewport can't bury the fields, but that is a
+prediction until it is seen on the real tablet.
+
+**Notes.**
+- Date conversion lives in `src/ui/event-form.ts`, pure and unit-tested. The
+  dialog shows an **inclusive** end date because that is how people think; HA
+  stores an exclusive one. Getting that backwards makes every all-day event a
+  day too long, so it has round-trip tests at a month boundary.
+- Timed events are sent as local time with an explicit offset. `toISOString()`
+  would shift a 5pm event to 22:00.
+- HA pushes a fresh list on every change — twice for a single create — so
+  optimistic state is corrected automatically and duplicate pushes are a no-op.
+- HA's write errors are developer-facing; they are translated for the household
+  and the raw text is logged to the console.
 
 **Notes.** Edit/delete are websocket-only — no service exists, so no automation
 can do this. `recurrence_id` + `recurrence_range` are the only levers for

@@ -1,8 +1,10 @@
 # Status
 
 **Last updated:** 2026-09-03
-**Current phase:** Phase 2 — Event CRUD (`docs/PLAN.md`)
-**Blocked on:** nothing. Roster is populated and all six calendars exist.
+**Current phase:** Phase 2 — Event CRUD (`docs/PLAN.md`) — code complete
+**Blocked on:** a person. Phase 2's exit criterion is a non-technical adult
+using the touchscreen unaided, and the keyboard-occlusion check needs the real
+tablet. Neither can be closed from a script.
 
 Keep this file honest. The single most useful thing it does is separate what
 has been **observed** from what has only been **built**. A passing typecheck is
@@ -81,6 +83,13 @@ Things actually observed, with the check that produced them.
 | **Six calendars overlay correctly** | `calendar.family` + Brittany/Ben/Grayson/Paxtyn/Emersyn, one event each on the same day, every chip its owner's color |
 | **Per-person isolation works** | hiding all but Paxtyn left exactly his event; the shared calendar hides with its own chip |
 | **Per-person calendars created without the HA UI** | all five made over the config-flow REST API |
+| **Create from the UI writes to the picked person's calendar** | tapped Sep 20, picked Grayson, typed a name — landed on `calendar.grayson`, chip in his green |
+| **Inclusive end date converts to HA's exclusive one** | UI end 22nd stored as `end: 2026-09-23` |
+| **Edit and delete from the UI** | rename persisted; delete needed a second tap and only then removed it |
+| **Recurring scope works both ways** | "only this one" renamed 1 of 4 instances; `THISANDFUTURE` changed 3 and preserved the earlier exception |
+| **Optimistic rollback on rejection** | deleted an event behind the UI's back, then saved: grid restored, error shown, nothing written |
+| **Write errors are translated for the household** | "That event isn't there any more…" shown; raw HA text logged to console |
+| **Subscription pushes on every change** | create produced two pushes, delete one — so no resubscribe after writes |
 
 ---
 
@@ -93,9 +102,17 @@ verified on 2026-09-03. What remains has still never been executed.
   round-trip. The `createLongLivedTokenAuth` path underneath it is proven (the
   standalone page renders when handed `?token=`), but nobody has typed a URL
   and token into the form and pressed Connect.
+- **No non-technical person has used the dialog.** Every CRUD path is driven
+  and passing under automation, which proves it *works* and says nothing about
+  whether it is *usable*. That is Phase 2's actual exit criterion.
+- **The on-screen keyboard has never been seen.** The sheet is top-anchored
+  with its own scroll so a shrinking visual viewport shouldn't bury the
+  fields — a prediction, not an observation. Desktop Chrome cannot test it.
 - **Nothing has ever run on a Fire OS 7 tablet.** [ADR-0003] is reasoned from
   reported WebView versions, not measured. The bundle scan passes, which is
-  necessary and not sufficient.
+  necessary and not sufficient. `<input type="date">` and `type="time"` are
+  used by the dialog; both are old enough for Chrome 87, but their *touch*
+  behaviour on Fire OS is unobserved.
 - **Nothing has run on the wall Pi**, in kiosk mode or otherwise.
 - **The overlay has never run with more than two people**, and never with a
   person who has a `choreList` but no `calendar`. `normalizeRoster()` covers

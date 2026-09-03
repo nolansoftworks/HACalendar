@@ -1,9 +1,14 @@
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import type { HaClient } from "../ha/client.js";
 import {
+  createEvent,
+  deleteEvent,
   parseHaDate,
   subscribeCalendarEvents,
+  updateEvent,
+  type CalendarEventInput,
   type HaCalendarEvent,
+  type RecurrenceTarget,
 } from "../ha/calendar.js";
 import {
   buildGrid,
@@ -14,6 +19,9 @@ import {
   weekdayLabels,
   type OwnedEvent,
 } from "./grid.js";
+import { toEventInput } from "./event-form.js";
+import "./event-dialog.js";
+import type { DialogSaveDetail, EditScope } from "./event-dialog.js";
 import {
   DEFAULT_ROSTER,
   FAMILY_COLOR,
@@ -35,6 +43,12 @@ interface CalendarTarget {
  * Month grid, overlaying the shared calendar and one calendar per person
  * ([ADR-0017]). The household sees one grid; the per-person entities are an
  * implementation detail forced by there being no ATTENDEE field.
+ *
+ * Writes are optimistic. HA pushes a fresh event list on every calendar change
+ * -- verified, and it pushes *twice* for a single create -- so the authoritative
+ * state arrives on its own moments later and simply replaces whatever we
+ * guessed. On failure the previous state is restored and the dialog stays open
+ * with the error, so a mistyped event is never silently lost.
  */
 export class MonthView extends LitElement {
   static override properties = {
@@ -47,6 +61,11 @@ export class MonthView extends LitElement {
     _hidden: { state: true },
     _error: { state: true },
     _failed: { state: true },
+    _dialogMode: { state: true },
+    _dialogDay: { state: true },
+    _dialogEvent: { state: true },
+    _dialogBusy: { state: true },
+    _dialogError: { state: true },
   };
 
   client!: HaClient;
@@ -62,6 +81,12 @@ export class MonthView extends LitElement {
   _error: string | null = null;
   /** Entity ids that could not be subscribed -- usually a typo in people.json. */
   _failed: string[] = [];
+
+  _dialogMode: "create" | "edit" | null = null;
+  _dialogDay: Date | null = null;
+  _dialogEvent: OwnedEvent | null = null;
+  _dialogBusy = false;
+  _dialogError: string | null = null;
 
   #unsubscribes: Map<string, () => Promise<void>> = new Map();
   // Guards against an out-of-order subscribe landing after a newer one when
@@ -117,6 +142,11 @@ export class MonthView extends LitElement {
     return targets;
   }
 
+  #targetForOwner(ownerId: string): CalendarTarget {
+    const match = this.#targets().filter((t) => t.ownerId === ownerId)[0];
+    return match ?? this.#targets()[0]!;
+  }
+
   async #teardown(): Promise<void> {
     const unsubscribes = [...this.#unsubscribes.values()];
     this.#unsubscribes = new Map();
@@ -148,7 +178,8 @@ export class MonthView extends LitElement {
           end,
           (events) => {
             if (token !== this.#subscriptionToken) return;
-            // Replace the Map so Lit sees a new identity.
+            // Replace the Map so Lit sees a new identity. HA can push the same
+            // list twice for one write; replacing wholesale makes that a no-op.
             const next = new Map(this._byCalendar);
             next.set(target.entityId, events.map((event) => own(event, target)));
             this._byCalendar = next;
@@ -204,6 +235,165 @@ export class MonthView extends LitElement {
       }
     });
     return merged;
+  }
+
+  // --- dialog -------------------------------------------------------------
+
+  #openCreate(day: Date): void {
+    this._dialogEvent = null;
+    this._dialogDay = day;
+    this._dialogError = null;
+    this._dialogBusy = false;
+    this._dialogMode = "create";
+  }
+
+  #openEdit(event: OwnedEvent): void {
+    this._dialogDay = null;
+    this._dialogEvent = event;
+    this._dialogError = null;
+    this._dialogBusy = false;
+    this._dialogMode = "edit";
+  }
+
+  #closeDialog(): void {
+    this._dialogMode = null;
+    this._dialogEvent = null;
+    this._dialogDay = null;
+    this._dialogError = null;
+    this._dialogBusy = false;
+  }
+
+  /**
+   * Scope a change to a recurring series. Omitting `recurrence_id` entirely
+   * addresses the whole series; `THISANDFUTURE` splits it from this instance on.
+   */
+  #recurrenceTarget(event: OwnedEvent, scope: EditScope): RecurrenceTarget {
+    if (!event.recurrence_id) return {};
+    return scope === "future"
+      ? {
+          recurrenceId: event.recurrence_id,
+          recurrenceRange: "THISANDFUTURE",
+        }
+      : { recurrenceId: event.recurrence_id };
+  }
+
+  async #onSave(detail: DialogSaveDetail): Promise<void> {
+    const snapshot = this._byCalendar;
+    this._dialogBusy = true;
+    this._dialogError = null;
+
+    try {
+      if (this._dialogMode === "create") {
+        const target = this.#targetForOwner(detail.ownerId);
+        const input = toEventInput(detail.values);
+        this.#optimisticAdd(target, input);
+        await createEvent(this.client, target.entityId, input);
+      } else {
+        const event = this._dialogEvent;
+        if (!event) throw new Error("Nothing to edit.");
+        if (!event.uid) {
+          throw new Error("This event has no id, so it cannot be changed.");
+        }
+        const target = this.#targetForOwner(event.ownerId);
+        const input = toEventInput(detail.values, event.rrule);
+        this.#optimisticReplace(target, event, input);
+        await updateEvent(
+          this.client,
+          target.entityId,
+          event.uid,
+          input,
+          this.#recurrenceTarget(event, detail.scope),
+        );
+      }
+      this.#closeDialog();
+    } catch (err) {
+      this._byCalendar = snapshot;
+      this._dialogBusy = false;
+      this._dialogError = errorMessage(err);
+    }
+  }
+
+  async #onDelete(scope: EditScope): Promise<void> {
+    const event = this._dialogEvent;
+    if (!event) return;
+    if (!event.uid) {
+      this._dialogError = "This event has no id, so it cannot be deleted.";
+      return;
+    }
+
+    const snapshot = this._byCalendar;
+    this._dialogBusy = true;
+    this._dialogError = null;
+
+    try {
+      const target = this.#targetForOwner(event.ownerId);
+      this.#optimisticRemove(target, event);
+      await deleteEvent(
+        this.client,
+        target.entityId,
+        event.uid,
+        this.#recurrenceTarget(event, scope),
+      );
+      this.#closeDialog();
+    } catch (err) {
+      this._byCalendar = snapshot;
+      this._dialogBusy = false;
+      this._dialogError = errorMessage(err);
+    }
+  }
+
+  // Optimistic edits are approximate for a recurring series -- a THISANDFUTURE
+  // change touches instances we don't rewrite here. HA's push corrects it.
+  #optimisticAdd(target: CalendarTarget, input: CalendarEventInput): void {
+    const optimistic: OwnedEvent = {
+      summary: input.summary,
+      start: input.start,
+      end: input.end,
+      all_day: input.start.indexOf("T") === -1,
+      ownerId: target.ownerId,
+      color: target.color,
+      uid: `pending-${Date.now()}`,
+    };
+    const next = new Map(this._byCalendar);
+    next.set(target.entityId, [
+      ...(next.get(target.entityId) ?? []),
+      optimistic,
+    ]);
+    this._byCalendar = next;
+  }
+
+  #optimisticReplace(
+    target: CalendarTarget,
+    event: OwnedEvent,
+    input: CalendarEventInput,
+  ): void {
+    const next = new Map(this._byCalendar);
+    next.set(
+      target.entityId,
+      (next.get(target.entityId) ?? []).map((candidate) =>
+        isSameInstance(candidate, event)
+          ? {
+              ...candidate,
+              summary: input.summary,
+              start: input.start,
+              end: input.end,
+              all_day: input.start.indexOf("T") === -1,
+            }
+          : candidate,
+      ),
+    );
+    this._byCalendar = next;
+  }
+
+  #optimisticRemove(target: CalendarTarget, event: OwnedEvent): void {
+    const next = new Map(this._byCalendar);
+    next.set(
+      target.entityId,
+      (next.get(target.entityId) ?? []).filter(
+        (candidate) => !isSameInstance(candidate, event),
+      ),
+    );
+    this._byCalendar = next;
   }
 
   override render() {
@@ -275,16 +465,27 @@ export class MonthView extends LitElement {
               class="cell ${cell.inMonth ? "" : "outside"} ${cell.isToday
                 ? "today"
                 : ""}"
+              role="button"
+              tabindex="0"
+              aria-label="Add an event on ${cell.date.toDateString()}"
+              @click=${() => this.#openCreate(cell.date)}
             >
               <span class="daynum">${cell.date.getDate()}</span>
               ${cell.events.map(
                 (event) => html`
                   <span
                     class="chip"
+                    role="button"
+                    tabindex="0"
                     title=${event.summary}
                     style="background:${event.color};color:${readableTextOn(
                       event.color,
                     )}"
+                    @click=${(e: Event) => {
+                      // Otherwise the cell's create handler fires as well.
+                      e.stopPropagation();
+                      this.#openEdit(event);
+                    }}
                   >
                     ${event.all_day
                       ? nothing
@@ -297,6 +498,24 @@ export class MonthView extends LitElement {
           `,
         )}
       </div>
+
+      ${this._dialogMode
+        ? html`
+            <hacal-event-dialog
+              .mode=${this._dialogMode}
+              .people=${this._roster.people}
+              .event=${this._dialogEvent}
+              .day=${this._dialogDay}
+              .busy=${this._dialogBusy}
+              .error=${this._dialogError}
+              @dialog-close=${this.#closeDialog}
+              @dialog-save=${(e: CustomEvent<DialogSaveDetail>) =>
+                void this.#onSave(e.detail)}
+              @dialog-delete=${(e: CustomEvent<{ scope: EditScope }>) =>
+                void this.#onDelete(e.detail.scope)}
+            ></hacal-event-dialog>
+          `
+        : nothing}
     `;
   }
 
@@ -400,12 +619,16 @@ export class MonthView extends LitElement {
       overflow: hidden;
       border-radius: 8px;
       background: var(--hacal-cell, #fff);
+      cursor: pointer;
     }
     .cell.outside {
       opacity: 0.35;
     }
     .cell.today {
       outline: 2px solid var(--hacal-accent, #0b7285);
+    }
+    .cell:active {
+      background: var(--hacal-cell-active, #eef6f8);
     }
     .daynum {
       font-size: 0.85rem;
@@ -419,8 +642,56 @@ export class MonthView extends LitElement {
       white-space: nowrap;
       text-overflow: ellipsis;
       background: var(--hacal-chip, #d3f0f5);
+      cursor: pointer;
     }
   `;
+}
+
+/**
+ * Whether two payload entries are the same occurrence. A recurring series
+ * shares one `uid` across every instance, so `recurrence_id` is what separates
+ * them -- matching on `uid` alone would rewrite the whole series.
+ */
+function isSameInstance(a: OwnedEvent, b: OwnedEvent): boolean {
+  if (a.uid !== b.uid) return false;
+  return (a.recurrence_id ?? "") === (b.recurrence_id ?? "");
+}
+
+/**
+ * Turn a failure into something a non-technical adult can act on.
+ *
+ * Our own validation throws real `Error`s whose text is already written for
+ * the household, so those pass through untouched. HA is different: the
+ * websocket client rejects with a plain `{code, message}` object, and its text
+ * is developer-facing ("No existing item with uid/recurrence_id: ..."). That
+ * gets translated, and the raw form is logged so a failure is still
+ * diagnosable from the console.
+ */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+
+  const raw = haErrorText(err);
+  if (raw) console.error("[hacalendar] write rejected by HA:", raw);
+
+  if (raw && /no existing item/i.test(raw)) {
+    return "That event isn't there any more. It may have been changed on another screen.";
+  }
+  if (raw && /(invalid_format|extra keys|required key)/i.test(raw)) {
+    return "Home Assistant wouldn't accept those details.";
+  }
+  if (raw && /not_found|unknown_error/i.test(raw)) {
+    return "That calendar isn't available right now.";
+  }
+  return "That didn't save. Please try again.";
+}
+
+function haErrorText(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const candidate = err as { message?: unknown; code?: unknown };
+  const parts: string[] = [];
+  if (typeof candidate.code === "string") parts.push(candidate.code);
+  if (typeof candidate.message === "string") parts.push(candidate.message);
+  return parts.length ? parts.join(": ") : null;
 }
 
 function own(event: HaCalendarEvent, target: CalendarTarget): OwnedEvent {

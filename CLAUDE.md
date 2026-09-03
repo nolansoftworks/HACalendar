@@ -138,9 +138,18 @@ cd dev/config/www/hacalendar && \
 ```
 
 A typecheck and a build are **not** sufficient evidence that a change works.
-The websocket schemas in `src/ha/calendar.ts` were transcribed from HA's source,
-not confirmed against a live round-trip. Drive the real UI before claiming a
-feature works.
+
+The websocket schemas in `src/ha/calendar.ts` *have* now been confirmed by live
+round-trip (2026-09-03) — and doing so found that two of them were wrong, after
+they had passed typecheck and build for two phases. That is the argument for
+this rule, not an argument that it is now unnecessary. Drive the real UI before
+claiming a feature works.
+
+The UI can be driven without a person: headless Chrome over CDP against the
+live instance, with `Emulation.setTimezoneOverride` set to `America/Chicago` so
+the date handling is exercised the way the wall Pi will see it. Desktop
+emulation still cannot test the Chrome 87 floor or the on-screen keyboard
+(gotcha 3).
 
 ## Repo layout
 
@@ -152,6 +161,9 @@ src/ha/client.ts        HaClient — the seam both mount points share
 src/ha/calendar.ts      typed CRUD over calendar/event/*
 src/people.ts           people.json roster loader (ADR-0021)
 src/ui/month-view.ts    the month grid (lit element)
+src/ui/event-dialog.ts  touch-first create/edit/delete sheet
+src/ui/person-picker.ts the "who?" picker (ADR-0018) -- reused in Phase 3
+src/ui/event-form.ts    form <-> HA event conversion, unit-tested
 src/ui/grid.ts          pure grid/date maths — no lit, unit-tested
 src/**/*.test.ts        node:test suites, run by `npm test`
 public/                 copied beside the bundle; people.json lives here

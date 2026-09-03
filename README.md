@@ -69,9 +69,13 @@ stuffed into `description`. `local_calendar` persists a real `.ics`, and iCloud
 speaks CalDAV, so a future `vdirsyncer` sync is cheap *if* we don't corrupt the
 data model now.
 
-Also note: the websocket event payload uses `start`/`end`, while the
-`calendar.create_event` **service** uses `dtstart`/`dtend`. Same fields,
-different names. We speak websocket everywhere.
+Also note: the field names are **asymmetric on the websocket itself**, which is
+not what this file used to say. Reads (`calendar/event/subscribe`) return
+`start`/`end`; writes (`calendar/event/create` and `/update`) require
+`dtstart`/`dtend` and reject `start`/`end`. It is a read-vs-write split, not a
+service-vs-websocket one — verified by round trip, see
+[ADR-0024](docs/DECISIONS.md#adr-0024). `toWireEvent()` in
+`src/ha/calendar.ts` is the only place that may say `dtstart`.
 
 ## Getting started
 
@@ -84,11 +88,11 @@ Then, once:
 
 1. Open http://localhost:8123, create the owner account.
 2. **Settings → Devices & Services → Add Integration → "Local Calendar"**,
-   name it `Family`. It's config-flow only — it can't be set up from YAML — but
-   the flow *is* drivable over the REST API, so per-person calendars can be
-   provisioned by script rather than by hand. See gotcha 5 in
-   [`CLAUDE.md`](CLAUDE.md).
-   This creates `calendar.family`.
+   name it `Family`. This creates `calendar.family`.
+
+   It's config-flow only — it can't be set up from YAML — but the flow *is*
+   drivable over the REST API, so the per-person calendars can be provisioned
+   by script rather than by hand. See gotcha 5 in [`CLAUDE.md`](CLAUDE.md).
 3. Add a couple of events so the grid has something to show.
 
 Now build the bundle into HA's `www/`:
@@ -124,7 +128,7 @@ persisted to `localStorage` afterward.
 
 - [x] Month view, live off `calendar/event/subscribe`
 - [x] Multi-calendar overlay — one grid, one color per person, filter toggles
-- [ ] Event create / edit / delete (touch-first dialogs)
+- [x] Event create / edit / delete (touch-first dialogs)
 - [ ] Per-kid chores via `local_todo`
 - [ ] Recurring chores — `todo` has **no** recurrence support. Model them as
       recurring calendar events (`RRULE`) and materialize today's instances
