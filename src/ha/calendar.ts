@@ -9,9 +9,21 @@ import type { HaClient } from "./client.js";
  *    Update and delete are websocket-only. That means no YAML automation can
  *    edit or delete an event -- only this app can.
  *
- * 2. The websocket event payload uses `start`/`end`. The `create_event`
- *    *service* uses `dtstart`/`dtend` for the same fields. We speak websocket
- *    everywhere, so it's always `start`/`end` in this file.
+ * 2. The field names are ASYMMETRIC -- and not in the way this comment used to
+ *    claim. Verified by live round-trip against HA 2026.7.2:
+ *
+ *      read  (`calendar/event/subscribe`)          -> `start`   / `end`
+ *      write (`calendar/event/create` | `/update`) -> `dtstart` / `dtend`
+ *
+ *    It is NOT a service-vs-websocket split. It is a read-vs-write split on
+ *    the same websocket API. Sending `start`/`end` to create or update fails
+ *    at runtime with:
+ *
+ *      invalid_format: extra keys not allowed @ data['event']['start']
+ *                      required key not provided @ data['event']['dtstart']
+ *
+ *    `toWireEvent()` below is the single translation point. App code speaks
+ *    `start`/`end` everywhere and should never mention `dtstart`.
  *
  * Backend support is not uniform. local_calendar implements CREATE|UPDATE|
  * DELETE. Google implements CREATE only. CalDAV implements CREATE only. If we
@@ -19,21 +31,35 @@ import type { HaClient } from "./client.js";
  * fail at runtime -- there is no compile-time signal.
  */
 
-/** An event as returned by `calendar/event/subscribe`. */
+/**
+ * An event as returned by `calendar/event/subscribe`.
+ *
+ * HA *omits* empty fields rather than sending null -- verified against 2026.7.2.
+ * An all-day event with no description arrives as exactly
+ * `{start, end, summary, uid, all_day}`. So these are optional, not nullable:
+ * a guard like `if (e.recurrence_id !== null)` wrongly passes on `undefined`.
+ */
 export interface HaCalendarEvent {
   summary: string;
   /** ISO datetime, or bare `YYYY-MM-DD` when `all_day` is true. */
   start: string;
+  /** Exclusive. An all-day event on the 9th arrives as start=09, end=10. */
   end: string;
-  description: string | null;
-  location: string | null;
-  uid: string | null;
-  recurrence_id: string | null;
-  rrule: string | null;
+  description?: string;
+  location?: string;
+  /** Present on every event local_calendar returns; shared across a series. */
+  uid?: string;
+  /** Only on an instance of a recurring series. e.g. `20260908T160000` */
+  recurrence_id?: string;
+  /** Only on a recurring series. e.g. `FREQ=WEEKLY;BYDAY=TU` */
+  rrule?: string;
   all_day: boolean;
 }
 
-/** An event as accepted by create/update. */
+/**
+ * An event as accepted by create/update, in *app* vocabulary.
+ * `start`/`end` here become `dtstart`/`dtend` on the wire -- see note 2 above.
+ */
 export interface CalendarEventInput {
   summary: string;
   start: string;
@@ -90,7 +116,7 @@ export function createEvent(
   return client.callWS({
     type: "calendar/event/create",
     entity_id: entityId,
-    event,
+    event: toWireEvent(event),
   });
 }
 
@@ -105,7 +131,7 @@ export function updateEvent(
     type: "calendar/event/update",
     entity_id: entityId,
     uid,
-    event,
+    event: toWireEvent(event),
     ...recurrenceFields(target),
   });
 }
@@ -122,6 +148,15 @@ export function deleteEvent(
     uid,
     ...recurrenceFields(target),
   });
+}
+
+/**
+ * The one place `dtstart`/`dtend` are allowed to appear. Create and update
+ * reject `start`/`end` outright; see note 2 in the file header.
+ */
+function toWireEvent(event: CalendarEventInput): Record<string, unknown> {
+  const { start, end, ...rest } = event;
+  return { ...rest, dtstart: start, dtend: end };
 }
 
 function recurrenceFields(target: RecurrenceTarget): Record<string, string> {

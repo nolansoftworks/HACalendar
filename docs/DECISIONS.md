@@ -643,6 +643,50 @@ the standard objection doesn't apply. If that ever changes, this ADR is at risk
 
 ---
 
+## ADR-0024
+
+**Calendar websocket field names are asymmetric: reads use `start`/`end`, writes use `dtstart`/`dtend`.**
+
+Status: **Accepted** · 2026-09-03 · corrects a claim in [ADR-0009]'s neighbourhood and in `CLAUDE.md`
+
+**Evidence.** Live round-trip against HA 2026.7.2 on 2026-09-03, driving the
+websocket directly (no client library, so this is the wire protocol itself):
+
+- `calendar/event/subscribe` **returns** events keyed `start` / `end`.
+- `calendar/event/create` and `calendar/event/update` **reject** those keys:
+
+  ```
+  invalid_format: extra keys not allowed @ data['event']['start']
+                  required key not provided @ data['event']['dtstart']
+  ```
+
+- The same call with `dtstart` / `dtend` succeeds. Verified for create, update,
+  update-with-`recurrence_range: THISANDFUTURE`, and single-instance delete.
+
+**What we believed before.** That the split was *service vs. websocket* — the
+`calendar.create_event` service taking `dtstart`/`dtend` and the websocket
+taking `start`/`end` throughout. That was wrong. It is a **read vs. write**
+split on one API, and believing otherwise made `createEvent()` and
+`updateEvent()` fail at runtime with no compile-time signal. Both were shipped
+broken and nobody noticed, because nothing had ever called them.
+
+**Decision.** App code speaks `start`/`end` exclusively. `toWireEvent()` in
+`src/ha/calendar.ts` is the single translation point to `dtstart`/`dtend`, and
+the only place those names may appear.
+
+**Also observed, same session.** HA **omits** empty event fields rather than
+sending `null`. An all-day event with no description returns exactly
+`{start, end, summary, uid, all_day}`. `description`, `location`,
+`recurrence_id` and `rrule` are therefore optional in `HaCalendarEvent`, not
+nullable — a `!== null` guard wrongly passes on `undefined`.
+
+**Consequence.** This is the concrete payoff of the rule in `CLAUDE.md` that a
+typecheck and a build are not evidence. Phase 2 is entirely writes; had this
+not been caught here it would have surfaced as "create silently does nothing"
+against a touchscreen, with a child watching.
+
+---
+
 [ADR-0001]: #adr-0001
 [ADR-0002]: #adr-0002
 [ADR-0003]: #adr-0003
@@ -660,5 +704,6 @@ the standard objection doesn't apply. If that ever changes, this ADR is at risk
 [ADR-0018]: #adr-0018
 [ADR-0021]: #adr-0021
 [ADR-0023]: #adr-0023
+[ADR-0024]: #adr-0024
 [Phase 1]: PLAN.md#phase-1--live-month-view--current
 [Phase 4]: PLAN.md#phase-4--recurring-chores

@@ -15,7 +15,13 @@ Vite + Lit + TS, Chrome 87 target, both mount points, dev HA in Docker.
 
 ---
 
-## Phase 1 — Live month view 🔴 **← current**
+## Phase 1 — Live month view ✅
+
+**Closed 2026-09-03** against live HA 2026.7.2 at `192.168.1.197:8123`. The
+schemas were *not* right as transcribed — see the `dtstart`/`dtend` finding
+below and in [ADR-0024]. Verification was done by driving the real exported
+functions over a websocket and the real UI in headless Chrome with
+`Emulation.setTimezoneOverride: America/Chicago`.
 
 Prove the spine end to end: auth → websocket → subscription → render. This is
 the phase where we find out whether the websocket schemas transcribed from HA's
@@ -48,13 +54,14 @@ docker compose -f dev/docker-compose.yml restart     # HA reads panel_custom onl
 
 Checklist:
 
-- [ ] Dev HA up; timezone confirmed **US/Central**
-- [ ] `calendar.family` exists and is seeded with the five event shapes above
-- [ ] Panel renders events at `/family-calendar`
-- [ ] Standalone renders the same at `/local/hacalendar/index.html`
-- [ ] All-day events land on the **correct** day at both month boundaries
-- [ ] Multi-day event doesn't bleed one day past its end
-- [ ] Rapid month-flipping leaves exactly one live subscription
+- [x] Dev HA up; timezone confirmed **US/Central** (`GET /api/config`)
+- [x] `calendar.family` exists and is seeded with the five event shapes above
+- [x] Panel renders events at `/family-calendar`
+- [x] Standalone renders the same at `/local/hacalendar/index.html`
+- [x] All-day events land on the **correct** day at both month boundaries
+- [x] Multi-day event doesn't bleed one day past its end
+- [x] Rapid month-flipping leaves exactly one live subscription
+      (12 rapid clicks → 14 subscribes, 13 unsubscribes, exactly 1 left open)
 
 **Exit criterion:** both mount points render real events from `calendar.family`,
 all-day events sit on the right day in Central time, and rapid month-flipping
@@ -71,7 +78,7 @@ leaves exactly one live subscription.
 
 ---
 
-## Phase 1.5 — Multi-calendar overlay
+## Phase 1.5 — Multi-calendar overlay 🔴 **← current**
 
 Per [ADR-0017]: `calendar.family` + one `calendar.<person>` each, rendered as a
 **single** color-coded grid. The household never sees an entity.
@@ -248,3 +255,4 @@ an event deleted on the iPhone disappears from the wall panel.
 [ADR-0021]: DECISIONS.md#adr-0021
 [ADR-0022]: DECISIONS.md#adr-0022
 [ADR-0023]: DECISIONS.md#adr-0023
+[ADR-0024]: DECISIONS.md#adr-0024

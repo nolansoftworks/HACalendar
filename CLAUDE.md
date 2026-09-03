@@ -31,9 +31,21 @@ a nice-to-have.**
 
 ## Gotchas that have already bitten us
 
-1. **`start`/`end` vs `dtstart`/`dtend`.** The websocket event payload uses
-   `start`/`end`. The `calendar.create_event` *service* uses `dtstart`/`dtend`
-   for the same fields. We speak websocket everywhere. Don't mix them.
+1. **`start`/`end` vs `dtstart`/`dtend` — asymmetric.** Verified by live
+   round-trip against HA 2026.7.2 on 2026-09-03. On the *same* websocket API,
+   reads and writes disagree: `calendar/event/subscribe` **returns**
+   `start`/`end`, while `calendar/event/create` and `/update` **require**
+   `dtstart`/`dtend` and reject `start`/`end` outright:
+
+   ```
+   invalid_format: extra keys not allowed @ data['event']['start']
+                   required key not provided @ data['event']['dtstart']
+   ```
+
+   This file previously claimed the split was service-vs-websocket. That was
+   wrong, and it made `createEvent()`/`updateEvent()` fail at runtime with no
+   compile-time signal. `toWireEvent()` in `src/ha/calendar.ts` is now the only
+   place `dtstart` may appear.
 
 2. **esbuild's `target` transpiles syntax, not built-ins.** `.at()`,
    `Object.hasOwn()`, `structuredClone()`, `.replaceAll()` all compile fine and
@@ -74,6 +86,13 @@ a nice-to-have.**
 11. **Duplicate task names corrupt a list** ([ADR-0019]). Since items are
     addressed by name, adding a duplicate makes *both* unaddressable. Refuse it
     in the UI. This is data integrity, not polish.
+
+12. **HA omits empty event fields; it does not send `null`.** Verified against
+    2026.7.2. An all-day event with no description arrives as exactly
+    `{start, end, summary, uid, all_day}` — `description`, `location`,
+    `recurrence_id` and `rrule` are simply **absent**. They are therefore
+    optional in `HaCalendarEvent`, not nullable, so a guard like
+    `if (e.recurrence_id !== null)` wrongly passes on `undefined`.
 
 [ADR-0013]: docs/DECISIONS.md#adr-0013
 [ADR-0017]: docs/DECISIONS.md#adr-0017

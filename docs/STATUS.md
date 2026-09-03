@@ -1,8 +1,8 @@
 # Status
 
-**Last updated:** 2026-07-09
+**Last updated:** 2026-09-03
 **Current phase:** Phase 1 — Live month view (`docs/PLAN.md`)
-**Blocked on:** a human onboarding the dev HA instance (see *Next action*)
+**Blocked on:** browser-side verification only (see *Next action*)
 
 Keep this file honest. The single most useful thing it does is separate what
 has been **observed** from what has only been **built**. A passing typecheck is
@@ -12,17 +12,32 @@ not evidence that a feature works.
 
 ## Next action
 
-Nobody has ever pointed this code at a running Home Assistant. That is the next
-thing that should happen, and it needs a human because `local_calendar` is
-config-flow only.
+The websocket half of Phase 1 is done — schemas, CRUD and date handling were
+all confirmed against live HA 2026.7.2 on 2026-09-03 (see *Verified* below).
+`calendar.family` is seeded with the five shapes and they are still there.
 
-**Follow [`docs/DEV-SETUP.md`](DEV-SETUP.md).** It has the full runbook, the
-event shapes to seed, and the troubleshooting table.
+What remains is the half that needs eyes on a browser:
 
-The step that actually matters: seed **all-day events on the 1st and the last
-day of a month**. A timed event proves almost nothing. Those two are what catch
-the UTC-midnight parsing bug, which in Central time renders an all-day event on
-the wrong day — and, on the 1st, in the wrong *month*.
+1. Rebuild the bundle on the server and restart HA
+   (`panel_custom` is read only at startup):
+   ```bash
+   node node_modules/vite/bin/vite.js build
+   docker compose -f dev/docker-compose.yml restart
+   ```
+2. Open `http://<server>:8123/family-calendar` and confirm the September grid
+   shows `TEST-allday-first` on the **1st** (not Aug 31) and `TEST-allday-last`
+   on the **30th** (not Oct 1).
+3. Confirm `TEST-multiday` spans Sep 10–12 and stops — it must not touch the 13th.
+4. Open `/local/hacalendar/index.html` and confirm the same, with a token.
+5. Flip months fast and confirm exactly one live subscription survives
+   (the `#subscriptionToken` guard in `month-view.ts`).
+
+Steps 2 and 3 are already proven correct at the data layer against real
+payloads; what is unproven is that the *rendering* agrees. If the grid
+disagrees with the assertions, the bug is in `month-view.ts`, not in
+`parseHaDate()`.
+
+Remember to hard-refresh or bump `module_url` — HA caches `/local/` hard.
 
 ---
 
@@ -42,31 +57,55 @@ Things actually observed, with the check that produced them.
 | Websocket commands exist: `calendar/event/{create,update,delete,subscribe}` | read `calendar/__init__.py` |
 | `todo` has no recurrence | read `todo/__init__.py` — no such feature flag |
 | HA OS cannot render a dashboard on HDMI | HA discussion #1668 |
+| **Live instance reachable at `192.168.1.197:8123`** | `200` on `/`, `401` on `/api/` |
+| **HA timezone really is `America/Chicago`** | `GET /api/config` on the live instance — it did inherit the container `TZ` |
+| **`panel_custom` IS registered** | `get_panels` returns `family-calendar` → `hacalendar-panel` → `/local/hacalendar/panel.js` |
+| **`calendar/event/subscribe` schema correct** | live subscribe accepted; pushes `{events: [...]}` as `SubscribeMessage` declares |
+| **Reads use `start`/`end`** | raw payload from live HA 2026.7.2 |
+| **Writes require `dtstart`/`dtend`** | `create`/`update` reject `start`/`end` with `invalid_format`. Was documented backwards; fixed |
+| **All-day arrives as bare `YYYY-MM-DD`, `end` exclusive** | one-day all-day event returns `start: 2026-09-03, end: 2026-09-04` |
+| **HA omits empty fields rather than sending `null`** | all-day event returned exactly `{start,end,summary,uid,all_day}` |
+| **Recurring expands to one entry per instance** | shared `uid`, distinct `recurrence_id` (`20260908T160000`, …) |
+| **`recurrence_id` + `recurrence_range: THISANDFUTURE` accepted** | live update against a series |
+| **Single-instance delete works** | deleted one `recurrence_id`; 5 instances → 4, gap in the right place |
+| **`parseHaDate()` puts all-day events on the right day** | 14 assertions vs real payloads under `TZ=America/Chicago`; naive `new Date()` puts Sep 1 on **Aug 31** |
+| **`eventsOnDay()` exclusive-end handling correct** | multi-day Sep 10–13 covers 10/11/12, not 9 or 13 |
+| **Real `createEvent`/`updateEvent`/`deleteEvent` round-trip** | driven from source against live HA after the `dtstart` fix |
 
 ---
 
 ## Built but NOT verified ⚠️
 
-**Everything below compiles and has never been executed against a live HA.**
-Treat each as a hypothesis.
+The data layer is no longer in this list — it was verified on 2026-09-03. What
+remains has still never been executed. Treat each as a hypothesis.
 
-- **The websocket message shapes in `src/ha/calendar.ts`** were transcribed from
-  HA's Python source, not confirmed by a round trip. Field names, required vs
-  optional, and the subscribe payload shape are all unconfirmed at runtime.
-- **`parseHaDate()`** — the all-day / UTC-midnight fix. Logic is right in
-  principle; never tested against a real all-day event.
-- **`eventsOnDay()` exclusive-end handling** — never tested against real data.
+- **Nothing in `src/ui/month-view.ts` has ever rendered.** The date *logic* is
+  proven against real payloads, but that was checked by lifting `eventsOnDay()`
+  into a harness, because it is not exported and the module calls
+  `customElements.define` at import time. The grid itself is unobserved.
 - **The `#subscriptionToken` guard** in `month-view.ts` — written to prevent an
   out-of-order subscribe from winning during fast month navigation. Never
   exercised.
 - **`clientFromHass()` WeakMap caching** — meant to stop HA's per-state-change
   `hass` replacement from tearing down subscriptions. Never observed working.
-- **`panel_custom` registration** — the `name:` in `configuration.yaml` must
-  match the tag in `src/panel.ts` (`hacalendar-panel`). Never loaded by HA.
 - **The standalone token flow** — the setup form and `createLongLivedTokenAuth`
-  path have never authenticated against anything.
+  path have never authenticated against anything. (A long-lived token *does*
+  work against this instance; the app's own auth path is what's untested.)
+- **`panel.js` served from `/local/`** — the panel is registered and HA points
+  at the URL, but nobody has confirmed HA actually serves and executes the
+  bundle.
 - **Nothing has ever run on a Fire OS 7 tablet.** [ADR-0003] is reasoned from
   reported WebView versions, not measured.
+
+### Testability debt found while verifying
+
+`eventsOnDay()`, `buildGrid()` and `visibleRange()` are module-private in
+`month-view.ts`, and that file imports `lit` and registers a custom element on
+import — so none of them can be unit-tested in Node without a DOM. Verifying
+them meant copying `eventsOnDay()` verbatim into a scratch harness, which tests
+a *copy*, not the code. Moving that pure date logic into its own module (no
+`lit` import) would make it directly testable and is cheap to do before Phase 2
+builds on it.
 
 ---
 
