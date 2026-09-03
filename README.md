@@ -84,7 +84,10 @@ Then, once:
 
 1. Open http://localhost:8123, create the owner account.
 2. **Settings → Devices & Services → Add Integration → "Local Calendar"**,
-   name it `Family`. (It's config-flow only; it can't be set up from YAML.)
+   name it `Family`. It's config-flow only — it can't be set up from YAML — but
+   the flow *is* drivable over the REST API, so per-person calendars can be
+   provisioned by script rather than by hand. See gotcha 5 in
+   [`CLAUDE.md`](CLAUDE.md).
    This creates `calendar.family`.
 3. Add a couple of events so the grid has something to show.
 
@@ -120,6 +123,7 @@ persisted to `localStorage` afterward.
 ## Roadmap
 
 - [x] Month view, live off `calendar/event/subscribe`
+- [x] Multi-calendar overlay — one grid, one color per person, filter toggles
 - [ ] Event create / edit / delete (touch-first dialogs)
 - [ ] Per-kid chores via `local_todo`
 - [ ] Recurring chores — `todo` has **no** recurrence support. Model them as

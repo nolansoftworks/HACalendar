@@ -78,23 +78,44 @@ leaves exactly one live subscription.
 
 ---
 
-## Phase 1.5 — Multi-calendar overlay 🔴 **← current**
+## Phase 1.5 — Multi-calendar overlay ✅
 
-Per [ADR-0017]: `calendar.family` + one `calendar.<person>` each, rendered as a
-**single** color-coded grid. The household never sees an entity.
+**Closed 2026-09-03.** Per [ADR-0017]: `calendar.family` + one
+`calendar.<person>` each, rendered as a **single** color-coded grid. The
+household never sees an entity.
 
-- [ ] `people.json` loader ([ADR-0021]) — roster, colors, `weekStartsOn`
-- [ ] Subscribe to N calendars, merge into one event stream
-- [ ] Color chips by owning calendar
-- [ ] Per-person filter toggles
-- [ ] `weekStartsOn` drives the grid instead of the current Sunday hardcode
+- [x] `people.json` loader ([ADR-0021]) — roster, colors, `weekStartsOn`
+- [x] Subscribe to N calendars, merge into one event stream
+- [x] Color chips by owning calendar
+- [x] Per-person filter toggles
+- [x] `weekStartsOn` drives the grid instead of the current Sunday hardcode
 
-**Exit criterion:** Emma's dentist appointment shows orange, Mom's shows purple,
-and toggling Emma off hides only hers.
+**Exit criterion — met.** Verified against live HA with two throwaway
+calendars, in headless Chrome pinned to `America/Chicago`: a dentist
+appointment on one calendar rendered `rgb(232, 89, 12)` and a book club on the
+other rendered `rgb(95, 61, 196)` **on the same day**; toggling the first off
+hid only its events and left both the second person's and the shared
+calendar's intact. Flipping `weekStartsOn` to `1` moved the headings to
+Mon–Sun and opened the grid on Aug 31 instead of Aug 30, with events staying on
+their correct dates.
+
+**Notes.**
+- The pure grid maths moved to `src/ui/grid.ts` so it can be unit-tested
+  without a DOM — this closes the testability debt recorded in `STATUS.md`.
+  18 `node:test` assertions, no new dependencies, passing in four timezones.
+- A per-person calendar that 404s is **soft-failed**: the other calendars still
+  render and the grid shows a small warning naming the bad entity. A blank
+  calendar in the kitchen is worse than an incomplete one.
+- The roster ships empty. Populating it needs real household names, and
+  `public/people.example.json` shows the shape.
+
+**Still to do before this is useful to the household:** create the actual
+`calendar.<person>` entities and fill in `public/people.json`. The config flow
+is scriptable (see `CLAUDE.md` gotcha 5), so this needs names, not clicks.
 
 ---
 
-## Phase 2 — Event CRUD
+## Phase 2 — Event CRUD 🔴 **← current**
 
 Touch-first create / edit / delete. This is the phase that actually replaces
 the dry-erase board — until it lands, the app is read-only and useless to the

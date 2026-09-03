@@ -5,45 +5,72 @@ import {
   subscribeCalendarEvents,
   type HaCalendarEvent,
 } from "../ha/calendar.js";
+import {
+  buildGrid,
+  formatTime,
+  readableTextOn,
+  startOfMonth,
+  visibleRange,
+  weekdayLabels,
+  type OwnedEvent,
+} from "./grid.js";
+import {
+  DEFAULT_ROSTER,
+  FAMILY_COLOR,
+  FAMILY_LABEL,
+  FAMILY_OWNER_ID,
+  loadRoster,
+  type Roster,
+} from "../people.js";
 
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const WEEKS_SHOWN = 6;
-const DAYS_PER_WEEK = 7;
-
-interface DayCell {
-  date: Date;
-  inMonth: boolean;
-  isToday: boolean;
-  events: HaCalendarEvent[];
+/** One calendar entity to subscribe to, and how its events should look. */
+interface CalendarTarget {
+  entityId: string;
+  ownerId: string;
+  label: string;
+  color: string;
 }
 
 /**
- * Month grid. Renders whatever `calendar/event/subscribe` pushes for the
- * visible range, and resubscribes when the month or entity changes.
+ * Month grid, overlaying the shared calendar and one calendar per person
+ * ([ADR-0017]). The household sees one grid; the per-person entities are an
+ * implementation detail forced by there being no ATTENDEE field.
  */
 export class MonthView extends LitElement {
   static override properties = {
     client: { attribute: false },
     entityId: { attribute: false },
+    rosterUrl: { attribute: false },
     _cursor: { state: true },
-    _events: { state: true },
+    _byCalendar: { state: true },
+    _roster: { state: true },
+    _hidden: { state: true },
     _error: { state: true },
+    _failed: { state: true },
   };
 
   client!: HaClient;
+  /** The shared household calendar. Per-person ones come from the roster. */
   entityId = "calendar.family";
+  rosterUrl?: string;
 
   _cursor: Date = startOfMonth(new Date());
-  _events: HaCalendarEvent[] = [];
+  _byCalendar: Map<string, OwnedEvent[]> = new Map();
+  _roster: Roster = DEFAULT_ROSTER;
+  /** Owner ids the user has toggled off. */
+  _hidden: string[] = [];
   _error: string | null = null;
+  /** Entity ids that could not be subscribed -- usually a typo in people.json. */
+  _failed: string[] = [];
 
-  #unsubscribe: (() => Promise<void>) | null = null;
+  #unsubscribes: Map<string, () => Promise<void>> = new Map();
   // Guards against an out-of-order subscribe landing after a newer one when
   // the user taps through months faster than the websocket round-trips.
   #subscriptionToken = 0;
 
   override connectedCallback(): void {
     super.connectedCallback();
+    void this.#loadRoster();
     void this.#resubscribe();
   }
 
@@ -53,15 +80,53 @@ export class MonthView extends LitElement {
   }
 
   override updated(changed: PropertyValues<this>): void {
-    if (changed.has("_cursor") || changed.has("entityId") || changed.has("client")) {
+    if (
+      changed.has("_cursor") ||
+      changed.has("entityId") ||
+      changed.has("client") ||
+      changed.has("_roster")
+    ) {
       void this.#resubscribe();
     }
   }
 
+  async #loadRoster(): Promise<void> {
+    this._roster = await loadRoster(this.rosterUrl);
+  }
+
+  /** The shared calendar first, then one per person that declares one. */
+  #targets(): CalendarTarget[] {
+    const targets: CalendarTarget[] = [
+      {
+        entityId: this.entityId,
+        ownerId: FAMILY_OWNER_ID,
+        label: FAMILY_LABEL,
+        color: FAMILY_COLOR,
+      },
+    ];
+
+    for (const person of this._roster.people) {
+      if (!person.calendar) continue;
+      targets.push({
+        entityId: person.calendar,
+        ownerId: person.id,
+        label: person.name,
+        color: person.color,
+      });
+    }
+    return targets;
+  }
+
   async #teardown(): Promise<void> {
-    const unsubscribe = this.#unsubscribe;
-    this.#unsubscribe = null;
-    if (unsubscribe) await unsubscribe();
+    const unsubscribes = [...this.#unsubscribes.values()];
+    this.#unsubscribes = new Map();
+    for (const unsubscribe of unsubscribes) {
+      try {
+        await unsubscribe();
+      } catch {
+        // The connection may already be gone; nothing useful to do.
+      }
+    }
   }
 
   async #resubscribe(): Promise<void> {
@@ -70,30 +135,45 @@ export class MonthView extends LitElement {
     const token = ++this.#subscriptionToken;
     await this.#teardown();
 
-    const { start, end } = visibleRange(this._cursor);
-    try {
-      const unsubscribe = await subscribeCalendarEvents(
-        this.client,
-        this.entityId,
-        start,
-        end,
-        (events) => {
-          if (token !== this.#subscriptionToken) return;
-          this._events = events;
-          this._error = null;
-        },
-      );
+    const { start, end } = visibleRange(this._cursor, this._roster.weekStartsOn);
+    this._byCalendar = new Map();
+    const failed: string[] = [];
 
-      // A newer subscription started while we were awaiting this one.
-      if (token !== this.#subscriptionToken) {
-        await unsubscribe();
-        return;
+    for (const target of this.#targets()) {
+      try {
+        const unsubscribe = await subscribeCalendarEvents(
+          this.client,
+          target.entityId,
+          start,
+          end,
+          (events) => {
+            if (token !== this.#subscriptionToken) return;
+            // Replace the Map so Lit sees a new identity.
+            const next = new Map(this._byCalendar);
+            next.set(target.entityId, events.map((event) => own(event, target)));
+            this._byCalendar = next;
+            this._error = null;
+          },
+        );
+
+        // A newer subscription started while we were awaiting this one.
+        if (token !== this.#subscriptionToken) {
+          await unsubscribe();
+          return;
+        }
+        this.#unsubscribes.set(target.entityId, unsubscribe);
+      } catch {
+        if (token !== this.#subscriptionToken) return;
+        // One bad entity must not blank the wall calendar -- carry on with the
+        // rest and say which one failed.
+        failed.push(target.entityId);
       }
-      this.#unsubscribe = unsubscribe;
-    } catch (err) {
-      if (token !== this.#subscriptionToken) return;
-      this._error =
-        err instanceof Error ? err.message : `Cannot read ${this.entityId}`;
+    }
+
+    if (token !== this.#subscriptionToken) return;
+    this._failed = failed;
+    if (failed.length && this.#unsubscribes.size === 0) {
+      this._error = `Cannot read ${failed.join(", ")}`;
     }
   }
 
@@ -109,12 +189,34 @@ export class MonthView extends LitElement {
     this._cursor = startOfMonth(new Date());
   }
 
+  #toggleOwner(ownerId: string): void {
+    this._hidden = this._hidden.indexOf(ownerId) === -1
+      ? [...this._hidden, ownerId]
+      : this._hidden.filter((id) => id !== ownerId);
+  }
+
+  /** Every subscribed calendar's events, minus the owners toggled off. */
+  #visibleEvents(): OwnedEvent[] {
+    const merged: OwnedEvent[] = [];
+    this._byCalendar.forEach((events) => {
+      for (const event of events) {
+        if (this._hidden.indexOf(event.ownerId) === -1) merged.push(event);
+      }
+    });
+    return merged;
+  }
+
   override render() {
-    const cells = buildGrid(this._cursor, this._events);
+    const cells = buildGrid(
+      this._cursor,
+      this.#visibleEvents(),
+      this._roster.weekStartsOn,
+    );
     const monthLabel = this._cursor.toLocaleDateString(undefined, {
       month: "long",
       year: "numeric",
     });
+    const targets = this.#targets();
 
     return html`
       <header>
@@ -131,9 +233,39 @@ export class MonthView extends LitElement {
       ${this._error
         ? html`<p class="error" role="alert">${this._error}</p>`
         : nothing}
+      ${this._failed.length && !this._error
+        ? html`<p class="warn" role="status">
+            Not showing ${this._failed.join(", ")} — check people.json.
+          </p>`
+        : nothing}
+      ${targets.length > 1
+        ? html`
+            <div class="filters">
+              ${targets.map((target) => {
+                const off = this._hidden.indexOf(target.ownerId) !== -1;
+                return html`
+                  <button
+                    class="filter ${off ? "off" : ""}"
+                    aria-pressed=${off ? "false" : "true"}
+                    style=${off
+                      ? `border-color:${target.color};color:${target.color}`
+                      : `background:${target.color};border-color:${target.color};color:${readableTextOn(
+                          target.color,
+                        )}`}
+                    @click=${() => this.#toggleOwner(target.ownerId)}
+                  >
+                    ${target.label}
+                  </button>
+                `;
+              })}
+            </div>
+          `
+        : nothing}
 
       <div class="weekdays">
-        ${WEEKDAY_LABELS.map((label) => html`<span>${label}</span>`)}
+        ${weekdayLabels(this._roster.weekStartsOn).map(
+          (label) => html`<span>${label}</span>`,
+        )}
       </div>
 
       <div class="grid">
@@ -147,7 +279,13 @@ export class MonthView extends LitElement {
               <span class="daynum">${cell.date.getDate()}</span>
               ${cell.events.map(
                 (event) => html`
-                  <span class="chip" title=${event.summary}>
+                  <span
+                    class="chip"
+                    title=${event.summary}
+                    style="background:${event.color};color:${readableTextOn(
+                      event.color,
+                    )}"
+                  >
                     ${event.all_day
                       ? nothing
                       : html`<b>${formatTime(parseHaDate(event.start))}</b> `}
@@ -210,6 +348,33 @@ export class MonthView extends LitElement {
       background: #fdecea;
       color: #8c1d18;
     }
+    .warn {
+      margin: 0 16px 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: #fff4e6;
+      color: #8a5300;
+      font-size: 0.85rem;
+    }
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0 16px 10px;
+    }
+    button.filter {
+      min-width: 0;
+      min-height: 44px;
+      padding: 0 16px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: 2px solid transparent;
+      border-radius: 22px;
+    }
+    button.filter.off {
+      background: transparent;
+      opacity: 0.75;
+    }
     .weekdays {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
@@ -258,76 +423,14 @@ export class MonthView extends LitElement {
   `;
 }
 
+function own(event: HaCalendarEvent, target: CalendarTarget): OwnedEvent {
+  return { ...event, ownerId: target.ownerId, color: target.color };
+}
+
 customElements.define("hacal-month-view", MonthView);
 
 declare global {
   interface HTMLElementTagNameMap {
     "hacal-month-view": MonthView;
   }
-}
-
-function startOfMonth(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function addDays(date: Date, days: number): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
-}
-
-function sameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-/** The 6x7 window the grid displays, which spills past the month on both ends. */
-function visibleRange(cursor: Date): { start: Date; end: Date } {
-  const start = addDays(cursor, -cursor.getDay());
-  return { start, end: addDays(start, WEEKS_SHOWN * DAYS_PER_WEEK) };
-}
-
-function buildGrid(cursor: Date, events: HaCalendarEvent[]): DayCell[] {
-  const { start } = visibleRange(cursor);
-  const today = new Date();
-  const cells: DayCell[] = [];
-
-  for (let i = 0; i < WEEKS_SHOWN * DAYS_PER_WEEK; i++) {
-    const date = addDays(start, i);
-    cells.push({
-      date,
-      inMonth: date.getMonth() === cursor.getMonth(),
-      isToday: sameDay(date, today),
-      events: eventsOnDay(events, date),
-    });
-  }
-  return cells;
-}
-
-/**
- * Events overlapping `day`. HA sends `end` exclusive, so an all-day event on
- * the 9th arrives as start=09 end=10 and must not bleed into the 10th.
- */
-function eventsOnDay(events: HaCalendarEvent[], day: Date): HaCalendarEvent[] {
-  const dayStart = day.getTime();
-  const dayEnd = addDays(day, 1).getTime();
-
-  return events
-    .filter((event) => {
-      const start = parseHaDate(event.start).getTime();
-      const end = parseHaDate(event.end).getTime();
-      return start < dayEnd && end > dayStart;
-    })
-    .sort((a, b) => {
-      if (a.all_day !== b.all_day) return a.all_day ? -1 : 1;
-      return parseHaDate(a.start).getTime() - parseHaDate(b.start).getTime();
-    });
-}
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }

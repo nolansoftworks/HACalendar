@@ -1,0 +1,18 @@
+{
+  "weekStartsOn": 0,
+  "people": [
+    {
+      "id": "emma",
+      "name": "Emma",
+      "color": "#e8590c",
+      "calendar": "calendar.emma",
+      "choreList": "todo.chores_emma"
+    },
+    {
+      "id": "mom",
+      "name": "Mom",
+      "color": "#5f3dc4",
+      "calendar": "calendar.mom"
+    }
+  ]
+}

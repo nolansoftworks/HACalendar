@@ -59,8 +59,22 @@ a nice-to-have.**
    `module_url` to `panel.js?v=N` or hard-refresh, or you will conclude the
    build is broken when it isn't.
 
-5. **`local_calendar` is config-flow only.** It cannot be created from YAML.
-   Someone has to click through the UI once.
+5. **`local_calendar` is config-flow only — but the flow is scriptable.** It
+   still cannot be created from YAML. It *can* be driven over the REST API
+   without anyone touching the UI (verified 2026-09-03):
+
+   ```bash
+   # returns {"flow_id": ...}
+   curl -X POST "$HA/api/config/config_entries/flow" -H "Authorization: Bearer $TOKEN" \
+     -H 'Content-Type: application/json' -d '{"handler":"local_calendar"}'
+   curl -X POST "$HA/api/config/config_entries/flow/$FLOW_ID" -H "Authorization: Bearer $TOKEN" \
+     -H 'Content-Type: application/json' -d '{"calendar_name":"Emma","import":"create_empty"}'
+   ```
+
+   `DELETE /api/config/config_entries/entry/$ENTRY_ID` removes one. Both take
+   effect immediately — the response says `require_restart: false`. So
+   per-person calendars ([ADR-0017]) can be provisioned from a script; the
+   "someone has to click through the UI once" claim was never tested.
 
 6. **Backend write support is not uniform and fails at runtime, silently.**
    Point this app at Google or CalDAV and edit/delete throw. No type error, no
@@ -115,6 +129,7 @@ Until then, bypass with `node node_modules/vite/bin/vite.js build` and
 
 ```bash
 node node_modules/typescript/bin/tsc --noEmit     # or: npm run typecheck
+npm test                                          # node:test, no deps
 node node_modules/vite/bin/vite.js build          # or: npm run build
 
 # Chrome 87 floor — must print nothing:
@@ -135,10 +150,19 @@ src/panel.ts            custom element for panel_custom (mount point 1)
 src/standalone.ts       own websocket connection + token setup form
 src/ha/client.ts        HaClient — the seam both mount points share
 src/ha/calendar.ts      typed CRUD over calendar/event/*
-src/ui/month-view.ts    the month grid
-dev/                    disposable HA Container for development
+src/people.ts           people.json roster loader (ADR-0021)
+src/ui/month-view.ts    the month grid (lit element)
+src/ui/grid.ts          pure grid/date maths — no lit, unit-tested
+src/**/*.test.ts        node:test suites, run by `npm test`
+public/                 copied beside the bundle; people.json lives here
+scripts/                test-only module resolver (.js specifier -> .ts)
+dev/                    HA Container config (see ADR-0023: also production)
 docs/                   DECISIONS, PLAN, STATUS
 ```
+
+Keep pure logic in `src/ui/grid.ts`, not in `month-view.ts`. Anything that
+imports `lit` or calls `customElements.define` cannot be unit-tested in Node
+without a DOM, which is how the date maths went unverified for so long.
 
 Keep application logic out of `panel.ts` and `standalone.ts`. Anything that
 lands in those files has to be written twice.

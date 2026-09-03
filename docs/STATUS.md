@@ -1,8 +1,9 @@
 # Status
 
 **Last updated:** 2026-09-03
-**Current phase:** Phase 1 — Live month view (`docs/PLAN.md`)
-**Blocked on:** browser-side verification only (see *Next action*)
+**Current phase:** Phase 2 — Event CRUD (`docs/PLAN.md`)
+**Blocked on:** the household roster — real names, to create per-person
+calendars and fill in `public/people.json` (see *Next action*)
 
 Keep this file honest. The single most useful thing it does is separate what
 has been **observed** from what has only been **built**. A passing typecheck is
@@ -12,32 +13,35 @@ not evidence that a feature works.
 
 ## Next action
 
-The websocket half of Phase 1 is done — schemas, CRUD and date handling were
-all confirmed against live HA 2026.7.2 on 2026-09-03 (see *Verified* below).
-`calendar.family` is seeded with the five shapes and they are still there.
+Phases 1 and 1.5 are closed and verified against the live instance. Two things
+gate what comes next, and the first needs a human answer, not a click:
 
-What remains is the half that needs eyes on a browser:
+**1. The roster.** `public/people.json` ships empty, so the overlay currently
+degrades to `calendar.family` alone — correct behaviour, but not yet useful.
+It needs the household's real members: a stable `id` (logbook-facing, never
+renamed), a display name, and a color. See `public/people.example.json` for
+the shape and [ADR-0021] for why this is app config rather than derived from
+entities. Once the names exist, the per-person calendars can be created from a
+script — the config flow is drivable over the REST API (`CLAUDE.md` gotcha 5),
+so this no longer needs anyone in the HA UI.
 
-1. Rebuild the bundle on the server and restart HA
-   (`panel_custom` is read only at startup):
-   ```bash
-   node node_modules/vite/bin/vite.js build
-   docker compose -f dev/docker-compose.yml restart
-   ```
-2. Open `http://<server>:8123/family-calendar` and confirm the September grid
-   shows `TEST-allday-first` on the **1st** (not Aug 31) and `TEST-allday-last`
-   on the **30th** (not Oct 1).
-3. Confirm `TEST-multiday` spans Sep 10–12 and stops — it must not touch the 13th.
-4. Open `/local/hacalendar/index.html` and confirm the same, with a token.
-5. Flip months fast and confirm exactly one live subscription survives
-   (the `#subscriptionToken` guard in `month-view.ts`).
+**2. Deploying to the server.** HA serves the bundle from the **server's**
+checkout of this repo, not from any developer machine. After pulling, on the
+server:
 
-Steps 2 and 3 are already proven correct at the data layer against real
-payloads; what is unproven is that the *rendering* agrees. If the grid
-disagrees with the assertions, the bug is in `month-view.ts`, not in
-`parseHaDate()`.
+```bash
+npm install
+npm run build
+```
 
-Remember to hard-refresh or bump `module_url` — HA caches `/local/` hard.
+`panel_custom` is read only at HA startup, so a `docker compose restart` is
+needed only if `configuration.yaml` changed. HA caches `/local/` hard — hard-
+refresh, or bump `module_url` to `panel.js?v=N`, or you will conclude the build
+is broken when it isn't.
+
+Then Phase 2 (event CRUD) can start. Its write path is already proven at the
+API level — create, update, `THISANDFUTURE`, and single-instance delete all
+round-trip — so Phase 2 is a UI problem, not a protocol one.
 
 ---
 
@@ -71,41 +75,45 @@ Things actually observed, with the check that produced them.
 | **`parseHaDate()` puts all-day events on the right day** | 14 assertions vs real payloads under `TZ=America/Chicago`; naive `new Date()` puts Sep 1 on **Aug 31** |
 | **`eventsOnDay()` exclusive-end handling correct** | multi-day Sep 10–13 covers 10/11/12, not 9 or 13 |
 | **Real `createEvent`/`updateEvent`/`deleteEvent` round-trip** | driven from source against live HA after the `dtstart` fix |
+| **Both mount points render real events** | headless Chrome, timezone pinned to `America/Chicago`; panel reached by seeding `localStorage.hassTokens` |
+| **`#subscriptionToken` guard works** | 12 rapid month clicks → 14 subscribes, 13 unsubscribes, exactly 1 left open |
+| **`clientFromHass()` survives HA's `hass` churn** | the panel renders and keeps its subscription, which is what the WeakMap cache exists for |
+| **HA serves the bundle from `/local/`** | `200` on `panel.js` and `index.html` |
+| **`local_calendar` config flow is scriptable** | created and deleted two calendars over the REST API; `require_restart: false` |
+| **Multi-calendar overlay, colors, filters** | two throwaway calendars: `rgb(232, 89, 12)` and `rgb(95, 61, 196)` chips on the same day; toggling one hid only its events |
+| **`weekStartsOn` drives the grid** | flipping to `1` gave Mon–Sun headings and opened on Aug 31; events stayed on their dates |
+| **Grid maths unit-tested** | 18 `node:test` assertions, passing in UTC, Central, Tokyo and London |
 
 ---
 
 ## Built but NOT verified ⚠️
 
-The data layer is no longer in this list — it was verified on 2026-09-03. What
-remains has still never been executed. Treat each as a hypothesis.
+The data layer and the month grid are no longer in this list — both were
+verified on 2026-09-03. What remains has still never been executed.
 
-- **Nothing in `src/ui/month-view.ts` has ever rendered.** The date *logic* is
-  proven against real payloads, but that was checked by lifting `eventsOnDay()`
-  into a harness, because it is not exported and the module calls
-  `customElements.define` at import time. The grid itself is unobserved.
-- **The `#subscriptionToken` guard** in `month-view.ts` — written to prevent an
-  out-of-order subscribe from winning during fast month navigation. Never
-  exercised.
-- **`clientFromHass()` WeakMap caching** — meant to stop HA's per-state-change
-  `hass` replacement from tearing down subscriptions. Never observed working.
-- **The standalone token flow** — the setup form and `createLongLivedTokenAuth`
-  path have never authenticated against anything. (A long-lived token *does*
-  work against this instance; the app's own auth path is what's untested.)
-- **`panel.js` served from `/local/`** — the panel is registered and HA points
-  at the URL, but nobody has confirmed HA actually serves and executes the
-  bundle.
+- **The standalone *setup form*** — `renderSetup()` and its `localStorage`
+  round-trip. The `createLongLivedTokenAuth` path underneath it is proven (the
+  standalone page renders when handed `?token=`), but nobody has typed a URL
+  and token into the form and pressed Connect.
 - **Nothing has ever run on a Fire OS 7 tablet.** [ADR-0003] is reasoned from
-  reported WebView versions, not measured.
+  reported WebView versions, not measured. The bundle scan passes, which is
+  necessary and not sufficient.
+- **Nothing has run on the wall Pi**, in kiosk mode or otherwise.
+- **The overlay has never run with more than two people**, and never with a
+  person who has a `choreList` but no `calendar`. `normalizeRoster()` covers
+  that case in tests; the rendering path does not.
 
-### Testability debt found while verifying
+### Testability debt — resolved
 
-`eventsOnDay()`, `buildGrid()` and `visibleRange()` are module-private in
-`month-view.ts`, and that file imports `lit` and registers a custom element on
-import — so none of them can be unit-tested in Node without a DOM. Verifying
-them meant copying `eventsOnDay()` verbatim into a scratch harness, which tests
-a *copy*, not the code. Moving that pure date logic into its own module (no
-`lit` import) would make it directly testable and is cheap to do before Phase 2
-builds on it.
+`eventsOnDay()`, `buildGrid()` and `visibleRange()` used to be module-private
+in `month-view.ts`, behind a `lit` import and a `customElements.define()` at
+module scope, so verifying them meant copying them into a scratch harness —
+which tests a *copy*, not the code. They now live in `src/ui/grid.ts`, which
+imports no DOM and registers nothing, and are covered by `npm test`.
+
+**Keep it that way.** Pure logic goes in `grid.ts`; anything importing `lit`
+belongs in `month-view.ts`. This is the specific mistake that let the date
+maths sit unverified through two phases.
 
 ---
 

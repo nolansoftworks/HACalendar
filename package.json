@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "ha:up": "docker compose -f dev/docker-compose.yml up -d",
     "ha:down": "docker compose -f dev/docker-compose.yml down",
-    "ha:logs": "docker compose -f dev/docker-compose.yml logs -f homeassistant"
+    "ha:logs": "docker compose -f dev/docker-compose.yml logs -f homeassistant",
+    "test": "node --import ./scripts/register-ts-resolver.mjs --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "home-assistant-js-websocket": "^9.6.0",
