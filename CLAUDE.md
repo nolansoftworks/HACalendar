@@ -29,6 +29,7 @@ a nice-to-have.**
 | A person **is** a calendar entity | no `ATTENDEE` field, [ADR-0017](docs/DECISIONS.md#adr-0017) |
 | The roster is HA labels, never a file in this repo | forkable by anyone, [ADR-0026](docs/DECISIONS.md#adr-0026) |
 | The "who?" picker is intent, never auth | [ADR-0018](docs/DECISIONS.md#adr-0018) |
+| The app owns the screen; HA is a destination | appliance, not a dashboard, [ADR-0027](docs/DECISIONS.md#adr-0027) |
 
 ## Gotchas that have already bitten us
 
@@ -128,6 +129,7 @@ a nice-to-have.**
 [ADR-0019]: docs/DECISIONS.md#adr-0019
 [ADR-0022]: docs/DECISIONS.md#adr-0022
 [ADR-0026]: docs/DECISIONS.md#adr-0026
+[ADR-0027]: docs/DECISIONS.md#adr-0027
 
 ## Environment bug on this machine
 
@@ -177,7 +179,10 @@ src/ha/client.ts        HaClient — the seam both mount points share
 src/ha/calendar.ts      typed CRUD over calendar/event/*
 src/people.ts           roster vocabulary: Person, Roster, palette
 src/ha/roster.ts        roster read/write via HA's label registry (ADR-0026)
-src/ui/month-view.ts    the month grid (lit element)
+src/ui/app-shell.ts     the appliance shell: rail, header, views (ADR-0027)
+src/ui/week-view.ts     rolling day-column time grid — the default view
+src/ui/week-layout.ts   time-grid geometry — no lit, unit-tested
+src/ui/month-view.ts    the month grid — secondary view, presentational
 src/ui/event-dialog.ts  touch-first create/edit/delete sheet
 src/ui/person-picker.ts the "who?" picker (ADR-0018) -- reused in Phase 3
 src/ui/people-settings.ts add/edit/remove people, in-app (ADR-0026)
@@ -189,9 +194,15 @@ dev/                    HA Container config (see ADR-0023: also production)
 docs/                   DECISIONS, PLAN, STATUS
 ```
 
-Keep pure logic in `src/ui/grid.ts`, not in `month-view.ts`. Anything that
-imports `lit` or calls `customElements.define` cannot be unit-tested in Node
-without a DOM, which is how the date maths went unverified for so long.
+Keep pure logic in `src/ui/grid.ts` and `src/ui/week-layout.ts`, never in a
+view. Anything that imports `lit` or calls `customElements.define` cannot be
+unit-tested in Node without a DOM, which is how the date maths went unverified
+for two phases.
+
+**The views are presentational.** `app-shell.ts` owns the roster,
+subscriptions, filters and the edit dialog; `week-view.ts` and `month-view.ts`
+take events as a property and report taps. Do not give a view its own
+subscription — that is how two views start double-subscribing and drift.
 
 Keep application logic out of `panel.ts` and `standalone.ts`. Anything that
 lands in those files has to be written twice.

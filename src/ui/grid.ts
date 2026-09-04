@@ -141,6 +141,23 @@ export function formatTime(date: Date): string {
  * dark, so a fixed chip text color would be unreadable at one end. Uses the
  * sRGB luma coefficients; good enough for a chip and cheap on a Pi.
  */
+/**
+ * A person's color at low opacity, for event blocks.
+ *
+ * The time grid tints a block with its owner's color rather than filling it,
+ * so a dense day stays readable and the text stays black. `rgba()` rather than
+ * `color-mix()`, which is far newer than the Chrome 87 floor ([ADR-0003]).
+ */
+export function tint(hex: string, alpha: number): string {
+  const parsed = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!parsed) return `rgba(11, 114, 133, ${alpha})`;
+  const value = parseInt(parsed[1]!, 16);
+  const r = (value >> 16) & 0xff;
+  const g = (value >> 8) & 0xff;
+  const b = value & 0xff;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export function readableTextOn(hex: string): string {
   const parsed = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
   if (!parsed) return "#1c1c1c";

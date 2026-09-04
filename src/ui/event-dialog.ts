@@ -38,6 +38,7 @@ export class EventDialog extends LitElement {
     people: { attribute: false },
     event: { attribute: false },
     day: { attribute: false },
+    hour: { type: Number },
     busy: { type: Boolean },
     error: { type: String },
     _values: { state: true },
@@ -50,6 +51,8 @@ export class EventDialog extends LitElement {
   people: Person[] = [];
   event: OwnedEvent | null = null;
   day: Date | null = null;
+  /** Hour tapped in the time grid, if any. Makes a new event timed. */
+  hour: number | null = null;
   /** Set by the parent while a websocket call is in flight. */
   busy = false;
   /** Set by the parent when a call fails, so the dialog can stay open. */
@@ -63,14 +66,24 @@ export class EventDialog extends LitElement {
   #initialized = false;
 
   override willUpdate(changed: PropertyValues<this>): void {
-    if (this.#initialized && !changed.has("event") && !changed.has("day")) {
+    if (
+      this.#initialized &&
+      !changed.has("event") &&
+      !changed.has("day") &&
+      !changed.has("hour")
+    ) {
       return;
     }
-    if (!this.#initialized || changed.has("event") || changed.has("day")) {
+    if (
+      !this.#initialized ||
+      changed.has("event") ||
+      changed.has("day") ||
+      changed.has("hour")
+    ) {
       this.#initialized = true;
       this._values = this.event
         ? toFormValues(this.event)
-        : defaultFormValues(this.day ?? new Date());
+        : defaultFormValues(this.day ?? new Date(), this.hour);
       this._ownerId = this.event ? this.event.ownerId : this._ownerId;
       this._scope = "single";
       this._confirmingDelete = false;

@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "lit";
 import { clientFromHass, type HassLike } from "./ha/client.js";
-import "./ui/month-view.js";
+import "./ui/app-shell.js";
 
 interface PanelConfig {
   config?: { entity_id?: string } | null;
@@ -31,10 +31,10 @@ export class HaCalendarPanel extends LitElement {
     if (!this.hass) return html`<p>Connecting…</p>`;
 
     return html`
-      <hacal-month-view
+      <hacal-app-shell
         .client=${clientFromHass(this.hass)}
         .entityId=${this.panel?.config?.entity_id ?? "calendar.family"}
-      ></hacal-month-view>
+      ></hacal-app-shell>
     `;
   }
 

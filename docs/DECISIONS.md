@@ -520,7 +520,14 @@ data-integrity work, not polish.
 
 **The wall display defaults to Today: agenda plus every kid's chore list.**
 
-Status: **Accepted** · 2026-07-09 · user decision
+Status: **Superseded by [ADR-0027]** · 2026-07-09 · user decision
+
+> Superseded 2026-09-03 after the household named a concrete reference product.
+> The instinct — the idle screen should answer "what is happening and who owes
+> what" from across the kitchen — survives intact. What changed is its form: a
+> **rolling multi-day time grid** rather than a single-day agenda, with chores
+> reached from a left rail instead of stacked beside the agenda. See
+> [ADR-0027].
 
 Idle state shows today's events alongside each child's chores — the information
 a family needs at a glance from across the kitchen.
@@ -819,6 +826,71 @@ login would see two different rosters. Registries are shared.
 
 ---
 
+## ADR-0027
+
+**This is a family calendar appliance that runs on Home Assistant, not an HA tablet showing a calendar. The app is the frame; HA is a destination.**
+
+Status: **Accepted** · 2026-09-03 · supersedes [ADR-0020] · user decision
+
+Stated directly by the household: *"I want a family calendar appliance that
+happens to run on HA… the calendar is the number 1 app that runs… eventually
+I'll have an HA button that takes me to my HA dashboard… but then come back to
+the calendar app as that will be the primary thing running."* With a Skylight
+Calendar named as the reference for the layout.
+
+This resolves a confusion that had already bitten: HA's `default_config` mounts
+eighteen panels, and the household could not tell HA's own `/calendar` from
+ours at `/family-calendar`. The answer is not better labelling. It is that this
+app owns the whole screen.
+
+**Decision — the shell.**
+
+| Region | Contents |
+|---|---|
+| Left rail | Calendar (active), Chores, Lists, then **Home Assistant** and Settings pinned to the bottom |
+| Header | Household name + live clock, date navigation, view switch |
+| Person strip | One chip per person, colored, tapping filters the grid. Becomes chore progress in Phase 3 |
+| Main | The calendar view |
+| Corner | Floating **+** to add an event |
+
+The household name comes from HA's own instance name (`get_config` →
+`location_name`), so it needs no configuration of ours.
+
+**Decision — the default view is a rolling multi-day time grid**, five days
+starting today: day columns, an hour axis, events as blocks positioned and
+sized by their real times, tinted with their owner's color. All-day items sit
+in a band above the grid. The month grid becomes the *secondary* view, one tap
+away — it is still what the dry-erase board was, and still answers "what's
+happening on the 14th?".
+
+**Consequences.**
+
+- `app-shell.ts` owns the roster, the subscriptions, the filters and the edit
+  dialog. The views are presentational and take events as a property, so they
+  cannot drift apart or double-subscribe. This was a real refactor of
+  `month-view.ts`, which previously owned all of it.
+- The subscription window now depends on the active view — five days versus six
+  weeks — so switching views resubscribes.
+- **The hour window always contains the current hour** when today is on screen.
+  Without that the now-line disappears every evening after 9pm, which on a wall
+  display reads as a frozen screen.
+- **The grid auto-scrolls to now on mount.** Opening at 7am while the day
+  happens at 5pm makes the default screen useless.
+- Tapping an hour slot creates a *timed* event at that hour; tapping a month
+  cell still creates an all-day one. Tapping 4pm and getting an all-day event
+  would be wrong.
+- Chores and Lists appear in the rail but are visibly disabled until Phases 3
+  and beyond build them. Showing the intended shape is worth more than hiding
+  it, but they must never look tappable-and-broken.
+- The kiosk should point at the **standalone** page, which has no HA chrome at
+  all. The panel remains for use from inside HA.
+
+**Deliberately not decided here.** Whether to hide HA's own sidebar panels.
+That is the operator's instance, not ours to reconfigure, and the standalone
+page already sidesteps it.
+
+---
+
 [ADR-0001]: #adr-0001
 [ADR-0002]: #adr-0002
 [ADR-0003]: #adr-0003
@@ -839,5 +911,6 @@ login would see two different rosters. Registries are shared.
 [ADR-0024]: #adr-0024
 [ADR-0025]: #adr-0025
 [ADR-0026]: #adr-0026
+[ADR-0027]: #adr-0027
 [Phase 1]: PLAN.md#phase-1--live-month-view--current
 [Phase 4]: PLAN.md#phase-4--recurring-chores

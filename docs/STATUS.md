@@ -1,10 +1,11 @@
 # Status
 
 **Last updated:** 2026-09-03
-**Current phase:** Phase 2 — Event CRUD (`docs/PLAN.md`) — code complete
-**Blocked on:** a person. Phase 2's exit criterion is a non-technical adult
-using the touchscreen unaided, and the keyboard-occlusion check needs the real
-tablet. Neither can be closed from a script.
+**Current phase:** Phase 3 — Chores and the Today view (`docs/PLAN.md`)
+**Blocked on:** a person, for Phase 2 only. Its exit criterion is a
+non-technical adult using the touchscreen unaided, and the keyboard-occlusion
+check needs the real tablet. Neither can be closed from a script. Phase 2.5
+(the appliance shell, [ADR-0027]) is closed.
 
 Keep this file honest. The single most useful thing it does is separate what
 has been **observed** from what has only been **built**. A passing typecheck is
@@ -99,6 +100,13 @@ Things actually observed, with the check that produced them.
 | **Optimistic rollback on rejection** | deleted an event behind the UI's back, then saved: grid restored, error shown, nothing written |
 | **Write errors are translated for the household** | "That event isn't there any more…" shown; raw HA text logged to console |
 | **Subscription pushes on every change** | create produced two pushes, delete one — so no resubscribe after writes |
+| **Appliance shell renders** | rail, household name from HA's instance name, live clock, person strip, view switch, FAB — headless Chrome at 1280×800 |
+| **Time grid positions events by real times** | 9am–9:30am block at `top: 14.286%`, a 90-minute block taller than a 60-minute one |
+| **Overlapping events split into lanes** | 4–5:30 and 4:30–5 rendered `width: 50%` at `left: 0%` and `50%`; a 5–6 event reused the freed lane |
+| **All-day items go to the band, not the grid** | `TEST-Tacos` rendered as a pill above the columns |
+| **Tapping an hour slot creates a timed event there** | tapping the 2pm slot prefilled `14:00`–`15:00`, not all-day |
+| **Grid auto-scrolls toward now** | `scrollTop: 313` of 913 on mount, rather than opening at 7am |
+| **The hour window keeps the current hour visible** | at 21:23 the window stretched to 22:00 and the now-line drew |
 
 ---
 

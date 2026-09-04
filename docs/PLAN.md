@@ -185,6 +185,45 @@ calendars is a delete + create, which mints a **new UID** and quietly undermines
 
 ---
 
+## Phase 2.5 — The appliance shell ✅
+
+**Closed 2026-09-03.** Per [ADR-0027], after the household named a Skylight
+Calendar as the reference: this is a family calendar appliance that runs on HA,
+not an HA tablet showing a calendar.
+
+- [x] Left rail — Calendar, Chores, Lists, then Home Assistant and Settings
+- [x] Header — household name from HA's own instance name, live clock,
+      date navigation, Week/Month switch
+- [x] Person strip — colored chips that filter the grid
+- [x] **Rolling 5-day time grid as the default view** — day columns, hour axis,
+      events positioned and sized by real times, tinted by owner
+- [x] All-day band above the grid
+- [x] Floating **+** to add
+- [x] Month grid kept as the secondary view
+
+**Exit criterion — met.** Driven in headless Chrome against the live instance
+at 1280×800: five day columns starting today, the current day badged, blocks
+placed at the right offsets, two overlapping events split into equal
+side-by-side lanes with a third reusing the freed lane, all-day items in the
+band rather than the grid, and tapping an hour slot opening a *timed* event
+prefilled to that hour.
+
+**Notes.**
+- The geometry lives in `src/ui/week-layout.ts`, pure and unit-tested like
+  `grid.ts` — overlap clustering, lane assignment, clamping and the now-line.
+- `app-shell.ts` took ownership of the roster, subscriptions, filters and the
+  dialog, so both views are presentational. The subscription window now depends
+  on the active view, so switching resubscribes.
+- Two things only a real screen revealed: the hour window must always contain
+  the current hour, or the now-line vanishes each evening and the display looks
+  frozen; and the grid must auto-scroll to now, or it opens at 7am while the
+  day is happening at 5pm.
+
+**Still to do here:** the person strip shows filters, not chore progress. It
+becomes progress bars in Phase 3, which is what the reference shows.
+
+---
+
 ## Phase 3 — Chores and the Today view
 
 Entity pairs per [ADR-0012]: `calendar.chores_<kid>` + `todo.chores_<kid>`.

@@ -83,16 +83,27 @@ function combine(dateValue: string, timeValue: string): Date | null {
   return date;
 }
 
-/** A blank form for creating an event on `day`. */
-export function defaultFormValues(day: Date): EventFormValues {
+/**
+ * A blank form for creating an event on `day`.
+ *
+ * `hour` comes from tapping a slot in the time grid. Supplying it makes the
+ * event timed and one hour long, starting where the finger landed — tapping
+ * 4pm and getting an all-day event would be wrong. Without it the default is
+ * all-day, which is what tapping a month cell means.
+ */
+export function defaultFormValues(day: Date, hour?: number | null): EventFormValues {
   const date = formatDate(day);
+  const timed = typeof hour === "number" && Number.isFinite(hour);
+  const startHour = timed ? Math.max(0, Math.min(23, Math.trunc(hour))) : 0;
+  const pad2 = (value: number) => (value < 10 ? `0${value}` : String(value));
+
   return {
     summary: "",
-    allDay: true,
+    allDay: !timed,
     startDate: date,
-    startTime: DEFAULT_START_TIME,
+    startTime: timed ? `${pad2(startHour)}:00` : DEFAULT_START_TIME,
     endDate: date,
-    endTime: DEFAULT_END_TIME,
+    endTime: timed ? `${pad2(Math.min(23, startHour + 1))}:00` : DEFAULT_END_TIME,
     location: "",
     description: "",
   };

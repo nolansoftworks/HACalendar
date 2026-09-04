@@ -12,6 +12,13 @@ dry-erase calendar on the kitchen wall.
 
 ## Why it's shaped this way
 
+**A family calendar appliance that runs on Home Assistant** ([ADR-0027](docs/DECISIONS.md#adr-0027)).
+The app owns the whole screen: a left rail for Calendar / Chores / Lists, a
+header with the household name and the time, and a rolling five-day time grid
+as the default view. Home Assistant is reachable from the rail as a
+*destination* — it is not the frame wrapped around us. HA's own `/calendar`,
+`/todo` and the rest of `default_config` are unrelated to this app.
+
 **One bundle, two mount points.**
 
 1. **HA panel** (`panel_custom`) — full-viewport custom element inside the HA
@@ -160,6 +167,7 @@ persisted to `localStorage` afterward.
 - [x] Month view, live off `calendar/event/subscribe`
 - [x] Multi-calendar overlay — one grid, one color per person, filter toggles
 - [x] Event create / edit / delete (touch-first dialogs)
+- [x] Appliance shell — left rail, header, rolling 5-day time grid
 - [ ] Per-kid chores via `local_todo`
 - [ ] Recurring chores — `todo` has **no** recurrence support. Model them as
       recurring calendar events (`RRULE`) and materialize today's instances

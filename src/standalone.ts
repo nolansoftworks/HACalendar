@@ -4,7 +4,7 @@ import {
   type Connection,
 } from "home-assistant-js-websocket";
 import { clientFromConnection } from "./ha/client.js";
-import "./ui/month-view.js";
+import "./ui/app-shell.js";
 
 /**
  * Mount point 2: standalone page, no HA frontend.
@@ -86,9 +86,12 @@ async function main(): Promise<void> {
     return;
   }
 
-  const view = document.createElement("hacal-month-view");
+  const view = document.createElement("hacal-app-shell");
   view.client = clientFromConnection(connection);
   view.entityId = entityId;
+  // The rail's Home Assistant button must point at the real instance, which
+  // for this mount point is a different origin from the page itself.
+  view.haUrl = hassUrl;
   root.replaceChildren(view);
 }
 
