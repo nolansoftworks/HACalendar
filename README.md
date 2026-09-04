@@ -97,45 +97,34 @@ Then, once:
 
 ### Setting up your household
 
-The calendar works out of the box with just `calendar.family`. To get a
-color-coded calendar per person, create one `local_calendar` per member and
-then tell the app about them.
+**There is nothing to configure and no file to edit.** Open the calendar, tap
+**Settings**, and add each person with a name and a color. Adding someone
+creates their calendar for you.
 
-**This repo deliberately ships no roster** — a fork should not arrive carrying
-someone else's family ([ADR-0025](docs/DECISIONS.md#adr-0025)). Your roster
-lives on your server, outside the build:
+Until anyone is added, the grid shows the shared calendar and a one-line hint
+pointing at Settings, so a fresh install explains itself rather than looking
+broken.
 
-```bash
-mkdir -p config/www/hacalendar-config
-cp public/people.example.json config/www/hacalendar-config/people.json
-# then edit it
-```
+Under the hood a person is a **Home Assistant label**, and their calendar is
+the entity carrying that label ([ADR-0026](docs/DECISIONS.md#adr-0026)). That
+means the roster is shared across every device and HA user, survives upgrades,
+needs nothing in this repo — so a fork never arrives carrying someone else's
+family — and can also be edited from HA's own Settings → Labels if you prefer.
 
-That directory is **not** the build output. `config/www/hacalendar/` is wiped
-on every build, so a roster kept beside the bundle would vanish on your next
-deploy; this one survives upgrades and is never committed. Edit it and reload —
-no rebuild needed.
+Removing a person detaches them and **keeps their calendar** by default.
+Deleting the calendar destroys its events, so it is a separate, confirmed
+choice.
 
-Each person needs a `calendar.<id>` entity. Creating five by hand is tedious,
-and the config flow is scriptable, so this works instead:
+A person's `id` is their `label_id`, and it survives renames — which matters,
+because it is what chore completions get logged against. Rename freely; the
+history follows.
 
-```bash
-for NAME in Alex Sam Rowan; do
-  FLOW=$(curl -s -X POST "$HA/api/config/config_entries/flow" \
-    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-    -d '{"handler":"local_calendar"}' | jq -r .flow_id)
-  curl -s -X POST "$HA/api/config/config_entries/flow/$FLOW" \
-    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-    -d "{\"calendar_name\":\"$NAME\",\"import\":\"create_empty\"}" > /dev/null
-done
-```
-
-Until a roster exists the grid shows the shared calendar and a one-line hint
-naming the file to create, so an unconfigured install explains itself rather
-than looking broken.
-
-`id` is permanent — it is what chore completions get logged against, so
-renaming it orphans that history. Display names can change freely.
+> **Adding a person from `npm run dev` needs a matching CORS origin.** Creating
+> a calendar is the one REST call in the app, and browsers treat
+> `http://127.0.0.1:5173` and `http://localhost:5173` as different origins.
+> Only the latter is in `cors_allowed_origins`, so use `localhost` or the
+> request fails with `Failed to fetch`. Served from HA it is same-origin and
+> this cannot happen.
 
 Now build the bundle into HA's `www/`:
 

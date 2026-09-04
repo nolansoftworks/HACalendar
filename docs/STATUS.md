@@ -14,17 +14,19 @@ not evidence that a feature works.
 
 ## Next action
 
-Phases 1 and 1.5 are closed and verified against the live instance, and the
-roster is populated. **Phase 2 — event CRUD — is next**, and its write path is
-already proven at the protocol level (create, update, `THISANDFUTURE`, and
-single-instance delete all round-trip), so it is a UI problem rather than a
-protocol one. Note [ADR-0024]: writes take `dtstart`/`dtend`, and
-`toWireEvent()` is the only place that may say so.
+Phases 1 and 1.5 are closed. **Phase 2 is code complete** and every path is
+verified under automation, but its exit criterion is about a person — a
+non-technical adult adding, editing and deleting an event on the touchscreen
+unaided — so it stays open until someone actually tries. The keyboard-occlusion
+item needs the real tablet for the same reason.
+
+People are now added and edited in the app ([ADR-0026]); there is no roster
+file to deploy or maintain.
 
 **Deploying to the server.** HA serves the bundle from the **server's**
-checkout of this repo, not from any developer machine. `public/people.json` is
-copied into `www/` by the build and `emptyOutDir` wipes hand edits there, so a
-roster change means a deploy. After pulling, on the server:
+checkout of this repo, not from any developer machine. The roster is *not*
+deployed — it lives in HA ([ADR-0026]) and is edited in the app. After pulling,
+on the server:
 
 ```bash
 npm install
@@ -36,9 +38,9 @@ needed only if `configuration.yaml` changed. HA caches `/local/` hard — hard-
 refresh, or bump `module_url` to `panel.js?v=N`, or you will conclude the build
 is broken when it isn't.
 
-Then Phase 2 (event CRUD) can start. Its write path is already proven at the
-API level — create, update, `THISANDFUTURE`, and single-instance delete all
-round-trip — so Phase 2 is a UI problem, not a protocol one.
+After that, **Phase 3** (chores and the Today view). The `todo` entities it
+needs can be provisioned the same way the calendars were, and the "who?" picker
+it reuses already exists from Phase 2.
 
 ---
 
@@ -83,6 +85,13 @@ Things actually observed, with the check that produced them.
 | **Six calendars overlay correctly** | `calendar.family` + five per-person calendars, one event each on the same day, every chip its owner's color |
 | **Per-person isolation works** | hiding all but one person left exactly that person's event; the shared calendar hides with its own chip |
 | **Per-person calendars created without the HA UI** | all five made over the config-flow REST API |
+| **A label's colour accepts arbitrary hex** | `#a61e4d` stored and read back, not just HA's named palette |
+| **`label_id` survives a rename** | renamed a label; `label_id` unchanged — usable as [ADR-0021]'s permanent id |
+| **Roster reads from HA's registries** | label + entity registry in one round trip; a label with no calendar is correctly ignored |
+| **People are managed entirely in the app** | added a person from Settings: label created, calendar auto-created, linked, chip appeared without a reload |
+| **Adopting an existing calendar works** | attached a new person to an existing `calendar.*` without creating another |
+| **Failed add rolls back cleanly** | a CORS-blocked create deleted the label it had already made, leaving no debris |
+| **Removal keeps the calendar by default** | person deleted, calendar survived and returned to the adoptable list |
 | **Create from the UI writes to the picked person's calendar** | tapped Sep 20, picked a person, typed a name — landed on that person's calendar, chip in their color |
 | **Inclusive end date converts to HA's exclusive one** | UI end 22nd stored as `end: 2026-09-23` |
 | **Edit and delete from the UI** | rename persisted; delete needed a second tap and only then removed it |
@@ -158,9 +167,9 @@ out, breaking `npm run build` and `npm run typecheck` with
 | Per-event ownership | [ADR-0017]. Person *is* a calendar entity; the unified calendar is a view. |
 | Kids adding tasks | [ADR-0019]. Recovered from the original brief; needs duplicate-name refusal. |
 | Default kiosk view | [ADR-0020]. Today + chore rails; month one tap away. |
-| `people.json` schema | [ADR-0021]. `id` is stable and logbook-facing; display name is not. |
+| Roster schema and storage | [ADR-0021] for the shape, [ADR-0026] for where it lives. `id` is the `label_id`: stable and logbook-facing; the display name is not. |
 | Sweep cadence | [ADR-0022]. 00:05, before materialization. Not cosmetic — `remove_completed_items` takes no filter. |
-| Week start | Sunday. Lives in `people.json` as `weekStartsOn: 0`, not a constant. |
+| Week start | Sunday. Carried on the roster as `weekStartsOn: 0`, not a constant. |
 
 **Still unknown, non-blocking:**
 

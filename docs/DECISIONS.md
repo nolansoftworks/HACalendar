@@ -536,9 +536,16 @@ thing built. Do not reorder the phases on the assumption that default == first.
 
 ## ADR-0021
 
-**The person roster lives in `people.json`, served beside the bundle.**
+**The person roster is app config, not derived from entities.**
 
-Status: **Accepted** · 2026-07-09
+Status: **Accepted** · 2026-07-09 · storage changed by [ADR-0026]
+
+> The reasoning below still holds: the roster cannot be derived from
+> `todo.chores_*` entities because parents own no chore list, and `id` must be
+> permanent because the logbook records it. Only the **storage** changed — the
+> roster now lives in HA's label registry rather than a `people.json` file, so
+> a household can edit it in the app instead of on the server. See [ADR-0026].
+> The `Person` shape below is still what the code uses.
 
 Parents appear in the picker ([ADR-0018]) but own no chore list, so the roster
 **cannot** be derived from `todo.chores_*` entities. It is app config, not HA
@@ -691,7 +698,14 @@ against a touchscreen, with a child watching.
 
 **The household roster is operator config, served from a directory the build never touches. It is not in this repo.**
 
-Status: **Accepted** · 2026-09-03 · refines [ADR-0021] · user decision
+Status: **Superseded by [ADR-0026]** · 2026-09-03 · refines [ADR-0021] · user decision
+
+> Superseded the same day. The conclusion — a household's members are their
+> config and do not belong in this repo — was right and survives. The mechanism
+> was wrong: it still meant editing a JSON file on the server to add a child,
+> which is not something the people using a kitchen calendar will ever do. See
+> [ADR-0026]. Retained for the reasoning about build artifacts, which is why
+> the roster is not stored beside the bundle in either design.
 
 This project is meant to be forked and pointed at someone else's Home
 Assistant. That makes a specific household's members **their** configuration,
@@ -736,6 +750,75 @@ upgrades, and is already covered by `.gitignore`'s `dev/config/*` rule.
 
 ---
 
+## ADR-0026
+
+**A person is a Home Assistant label. Their calendar is the entity wearing it. The roster is managed in the app.**
+
+Status: **Accepted** · 2026-09-03 · supersedes [ADR-0025], changes the storage in [ADR-0021] · user decision
+
+The requirement: *"I would like that to be an option to add a new profile
+anytime in the UI, choose their color, and their name."* Plus the standing
+constraint that this repo is meant to be forked and run against someone else's
+Home Assistant, so a household's members can never be repo content.
+
+Both previous designs failed that. `people.json` in the repo shipped one
+family's names to every fork ([ADR-0025] fixed that); `people.json` on the
+server still meant SSH-ing in to add a child, which nobody using a kitchen
+calendar will do.
+
+**Decision.** The roster lives in HA's own registries:
+
+| Concept | Stored as |
+|---|---|
+| A person | a label in the **label registry** — `name` + `color` |
+| Their identity | `label_id`, derived once from the name |
+| Their calendar | the `calendar.*` entity carrying that label |
+| Someone who isn't a person | a label with no calendar — ignored |
+
+Adding someone from Settings creates the label, drives the `local_calendar`
+config flow to create their calendar, and links the two. Removing someone
+detaches and deletes the label; deleting the underlying calendar is opt-in and
+separately confirmed, because it destroys real events.
+
+**Evidence** (live round trip, HA 2026.7.2, 2026-09-03):
+
+- A label's `color` accepts an **arbitrary hex string**, not only HA's named
+  palette — so per-person colors need no separate store.
+- **`label_id` is stable across a rename.** Renaming the label "ZZLink" to
+  "ZZLink Renamed" left `label_id` as `zzlink`. This is what makes a label
+  usable as [ADR-0021]'s permanent id: it is what chore completions get logged
+  against ([ADR-0014]), so renaming a child must not orphan their history.
+- Labels attach to `calendar.*` entities via `config/entity_registry/update`,
+  and the whole roster reads in one round trip from two registry lists.
+- All of it is writable from the browser with the session the app already has.
+
+**Why this over `frontend/set_user_data`**, which also works and was tested:
+that store is **per HA user**. A household where one adult has their own HA
+login would see two different rosters. Registries are shared.
+
+**Consequences.**
+
+- No roster file, anywhere. Nothing to deploy, nothing to gitignore, and a
+  fresh clone works with zero setup — it renders the shared calendar and points
+  at Settings.
+- People appear in HA's own Settings → Labels, and can be edited there too.
+  Accepted: it is HA-native, and a household that never opens HA settings will
+  never notice.
+- `HaClient` gained `callApi` ([ADR-0005] still holds — UI code depends on the
+  seam, not on `hass`). It exists for exactly one thing: config entry flows
+  have no websocket equivalent.
+- **The one REST call is CORS-sensitive in dev.** Served from HA it is
+  same-origin and fine; from `vite dev` the page origin must appear in
+  `http.cors_allowed_origins`. `http://127.0.0.1:5173` and
+  `http://localhost:5173` are different origins to a browser, and only the
+  latter is configured. Symptom is `Failed to fetch` when adding a person.
+- A label on two calendars resolves to the first deterministically, rather than
+  producing a duplicate person.
+- `weekStartsOn` is not in the registries. It is a display preference and stays
+  a separate concern.
+
+---
+
 [ADR-0001]: #adr-0001
 [ADR-0002]: #adr-0002
 [ADR-0003]: #adr-0003
@@ -754,5 +837,7 @@ upgrades, and is already covered by `.gitignore`'s `dev/config/*` rule.
 [ADR-0021]: #adr-0021
 [ADR-0023]: #adr-0023
 [ADR-0024]: #adr-0024
+[ADR-0025]: #adr-0025
+[ADR-0026]: #adr-0026
 [Phase 1]: PLAN.md#phase-1--live-month-view--current
 [Phase 4]: PLAN.md#phase-4--recurring-chores

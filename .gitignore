@@ -11,8 +11,3 @@ dev/config/*
 # Build output lands inside the ignored dev config tree, but be explicit.
 dev/config/www/
 
-# The household roster is the operator every fork has their own.
-# It is served from config/www/hacalendar-config/ in production and is
-# never part of the build or the repo. public/people.json is only a
-# convenience for `vite dev`.
-public/people.json

@@ -84,7 +84,8 @@ leaves exactly one live subscription.
 `calendar.<person>` each, rendered as a **single** color-coded grid. The
 household never sees an entity.
 
-- [x] `people.json` loader ([ADR-0021]) — roster, colors, `weekStartsOn`
+- [x] Roster loader ([ADR-0021]) — people, colors, `weekStartsOn`. Now reads
+      HA's label registry rather than a file ([ADR-0026]).
 - [x] Subscribe to N calendars, merge into one event stream
 - [x] Color chips by owning calendar
 - [x] Per-person filter toggles
@@ -108,10 +109,12 @@ their correct dates.
   calendar in the kitchen is worse than an incomplete one.
 - Verified with a five-person household, each member having a `calendar.<id>`
   created over the scriptable config flow (`CLAUDE.md` gotcha 5). Nobody
-  touched the HA UI. The roster itself is operator config and deliberately
-  lives outside this repo ([ADR-0025]).
-- Colors were chosen dark enough that `readableTextOn()` returns white for all
-  five, so chip text is uniform rather than flipping between black and white.
+  touched the HA UI. The roster lives in HA's label registry and is edited in
+  the app ([ADR-0026]) — never in this repo, so a fork arrives with nobody in
+  it.
+- The offered palette is dark enough that `readableTextOn()` returns white for
+  every entry, so chip text is uniform rather than flipping between black and
+  white across the grid.
 - Verified with all six calendars live and one event per person on the **same
   day**: every chip took its owner's color, the all-day event sorted above the
   timed ones, and hiding everyone but one person left exactly that person's
@@ -122,9 +125,9 @@ unset until Phase 3 creates the `todo.chores_<kid>` entities — pointing the
 roster at entities that don't exist would be aspirational config, and
 [ADR-0021] makes both fields optional precisely so this can be staged.
 
-**Note:** `public/people.json` is a build artifact — Vite copies it from
-`public/` into `www/`, and `emptyOutDir` wipes anything hand-edited there. A
-roster change is a commit plus a deploy, not an edit on the server.
+**Note:** the roster is no longer a file at all. It lives in HA's label
+registry and is edited in the app ([ADR-0026]), so changing it needs neither a
+rebuild nor a commit.
 
 ---
 

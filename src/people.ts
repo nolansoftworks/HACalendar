@@ -1,26 +1,27 @@
 /**
- * The household roster ([ADR-0021]).
+ * The household roster ([ADR-0021], stored per [ADR-0026]).
  *
- * This is app config, not HA state, and it deliberately cannot be derived from
- * entities: parents appear in the "who?" picker ([ADR-0018]) but own no chore
- * list, so there is no `todo.chores_*` to enumerate them from.
+ * A person is a Home Assistant **label**; their calendar is the entity wearing
+ * that label. The reading and writing lives in `ha/roster.ts` -- this file is
+ * just the shared vocabulary.
  *
- * `id` is stable and is what gets written to `logbook.log` -- never the display
- * name. Renaming "Emma" must not orphan her history.
+ * `id` is the `label_id`, and it is stable across a rename. That matters: it is
+ * what chore completions get logged against ([ADR-0014]), so renaming "Emma"
+ * must not orphan her history.
  */
 
 export interface Person {
-  /** Stable, logbook-facing. Never rename this to follow a display name. */
+  /** HA `label_id`. Stable across renames. Logbook-facing. */
   id: string;
   name: string;
-  /** Drives event chips and chore accents. */
+  /** Arbitrary hex. HA's label registry accepts it, verified 2026-09-03. */
   color: string;
   choreList?: string;
   calendar?: string;
 }
 
 export interface Roster {
-  /** 0 = Sunday. Lives here so the grid isn't re-hardcoded. */
+  /** 0 = Sunday. A display preference, kept out of the label registry. */
   weekStartsOn: number;
   people: Person[];
 }
@@ -30,106 +31,44 @@ export const FAMILY_OWNER_ID = "__family";
 export const FAMILY_LABEL = "Family";
 export const FAMILY_COLOR = "#0b7285";
 
-/** Shown when no roster is configured, so a fresh install explains itself. */
+/** Shown when nobody is set up yet, so a fresh install explains itself. */
 export const ROSTER_SETUP_HINT =
-  "No people configured yet — add config/www/hacalendar-config/people.json to show a calendar per person.";
+  "No people yet — tap Settings to add everyone in the house.";
 
 /**
- * Used when `people.json` is missing or unreadable. It must still produce a
- * working wall calendar: a blank grid in the kitchen is worse than an
- * un-colored one, so the fallback is the shared calendar on its own.
+ * Used before the roster has loaded, and when a household has nobody set up.
+ * A blank grid in the kitchen is worse than an un-colored one, so this still
+ * renders the shared calendar.
  */
 export const DEFAULT_ROSTER: Roster = { weekStartsOn: 0, people: [] };
 
 /**
- * Where the operator's roster lives, and why it is not in this repo.
+ * A readable palette for new people, in offer order.
  *
- * This project is meant to be forked and run against someone else's Home
- * Assistant, so a household's actual members are **their** config, not our
- * source. The roster is therefore read from a directory the build never
- * touches:
- *
- *     config/www/hacalendar-config/people.json   ->  /local/hacalendar-config/people.json
- *
- * That path matters. The bundle is emitted into `config/www/hacalendar/` with
- * Vite's `emptyOutDir`, which deletes everything in that folder on every
- * build -- so a roster kept beside the bundle would be destroyed by the next
- * deploy. Keeping it in a sibling directory means it survives upgrades, is
- * never committed, and differs per household without anyone forking the code.
- *
- * The relative candidates after it exist only so `vite dev` can serve a local
- * `public/people.json` (git-ignored) while working on the UI.
+ * Every entry is dark enough that `readableTextOn()` returns white, so chip
+ * text stays uniform across the grid instead of flipping between black and
+ * white. Hues are spread so adjacent choices stay distinguishable.
  */
-const OPERATOR_ROSTER_URL = "/local/hacalendar-config/people.json";
+export const PERSON_COLORS = [
+  "#a61e4d",
+  "#1864ab",
+  "#2b8a3e",
+  "#e8590c",
+  "#6741d9",
+  "#c2255c",
+  "#0b7285",
+  "#5c940d",
+  "#d9480f",
+  "#862e9c",
+  "#1098ad",
+  "#495057",
+];
 
-function candidateUrls(): string[] {
-  const urls: string[] = [OPERATOR_ROSTER_URL];
-  try {
-    urls.push(new URL("people.json", import.meta.url).href);
-    urls.push(new URL("../people.json", import.meta.url).href);
-  } catch {
-    // import.meta.url unavailable (very old bundling path); fall through.
+/** The next unused color, so two people don't arrive the same shade. */
+export function suggestColor(taken: readonly string[]): string {
+  const used = taken.map((color) => color.toLowerCase());
+  for (const color of PERSON_COLORS) {
+    if (used.indexOf(color) === -1) return color;
   }
-  return urls;
-}
-
-/**
- * Fetch and validate the roster. Never rejects -- a malformed or missing file
- * degrades to `DEFAULT_ROSTER` rather than taking the calendar down.
- */
-export async function loadRoster(url?: string): Promise<Roster> {
-  const candidates = url ? [url] : candidateUrls();
-
-  for (const candidate of candidates) {
-    try {
-      const response = await fetch(candidate, { cache: "no-cache" });
-      if (!response.ok) continue;
-      return normalizeRoster(await response.json());
-    } catch {
-      // Try the next candidate.
-    }
-  }
-  return DEFAULT_ROSTER;
-}
-
-/**
- * Coerce untrusted JSON into a `Roster`, dropping entries that cannot work.
- *
- * A person without an `id` cannot be attributed in the logbook and a person
- * without a `calendar` has nothing to overlay, so both are skipped rather than
- * rendered half-broken.
- */
-export function normalizeRoster(input: unknown): Roster {
-  if (!input || typeof input !== "object") return DEFAULT_ROSTER;
-  const raw = input as { weekStartsOn?: unknown; people?: unknown };
-
-  const weekStartsOn =
-    typeof raw.weekStartsOn === "number" && Number.isFinite(raw.weekStartsOn)
-      ? raw.weekStartsOn
-      : 0;
-
-  const people: Person[] = [];
-  if (Array.isArray(raw.people)) {
-    for (const entry of raw.people) {
-      if (!entry || typeof entry !== "object") continue;
-      const person = entry as Record<string, unknown>;
-      const id = typeof person["id"] === "string" ? person["id"] : "";
-      if (!id) continue;
-
-      people.push({
-        id,
-        name: typeof person["name"] === "string" ? person["name"] : id,
-        color:
-          typeof person["color"] === "string" ? person["color"] : FAMILY_COLOR,
-        ...(typeof person["choreList"] === "string"
-          ? { choreList: person["choreList"] }
-          : {}),
-        ...(typeof person["calendar"] === "string"
-          ? { calendar: person["calendar"] }
-          : {}),
-      });
-    }
-  }
-
-  return { weekStartsOn, people };
+  return PERSON_COLORS[taken.length % PERSON_COLORS.length]!;
 }

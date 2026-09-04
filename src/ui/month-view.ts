@@ -22,13 +22,14 @@ import {
 import { toEventInput } from "./event-form.js";
 import "./event-dialog.js";
 import type { DialogSaveDetail, EditScope } from "./event-dialog.js";
+import { fetchRoster } from "../ha/roster.js";
+import "./people-settings.js";
 import {
   DEFAULT_ROSTER,
   FAMILY_COLOR,
   FAMILY_LABEL,
   FAMILY_OWNER_ID,
   ROSTER_SETUP_HINT,
-  loadRoster,
   type Roster,
 } from "../people.js";
 
@@ -55,7 +56,7 @@ export class MonthView extends LitElement {
   static override properties = {
     client: { attribute: false },
     entityId: { attribute: false },
-    rosterUrl: { attribute: false },
+    _settingsOpen: { state: true },
     _cursor: { state: true },
     _byCalendar: { state: true },
     _roster: { state: true },
@@ -73,7 +74,6 @@ export class MonthView extends LitElement {
   client!: HaClient;
   /** The shared household calendar. Per-person ones come from the roster. */
   entityId = "calendar.family";
-  rosterUrl?: string;
 
   _cursor: Date = startOfMonth(new Date());
   _byCalendar: Map<string, OwnedEvent[]> = new Map();
@@ -81,10 +81,11 @@ export class MonthView extends LitElement {
   /** Owner ids the user has toggled off. */
   _hidden: string[] = [];
   _error: string | null = null;
-  /** Entity ids that could not be subscribed -- usually a typo in people.json. */
+  /** Entity ids that could not be subscribed -- usually a deleted calendar. */
   _failed: string[] = [];
   /** Distinguishes "no roster configured" from "roster not fetched yet". */
   _rosterLoaded = false;
+  _settingsOpen = false;
 
   _dialogMode: "create" | "edit" | null = null;
   _dialogDay: Date | null = null;
@@ -117,10 +118,19 @@ export class MonthView extends LitElement {
     ) {
       void this.#resubscribe();
     }
+    // The roster comes from HA, so it cannot be fetched until there is a client.
+    if (changed.has("client")) void this.#loadRoster();
   }
 
   async #loadRoster(): Promise<void> {
-    this._roster = await loadRoster(this.rosterUrl);
+    if (!this.client) return;
+    try {
+      this._roster = await fetchRoster(this.client, this._roster.weekStartsOn);
+    } catch {
+      // A roster we cannot read must not blank the wall calendar. The shared
+      // calendar still renders and Settings still opens, so it is recoverable.
+      this._roster = DEFAULT_ROSTER;
+    }
     this._rosterLoaded = true;
   }
 
@@ -423,6 +433,16 @@ export class MonthView extends LitElement {
           &rsaquo;
         </button>
         <button class="today" @click=${this.#goToday}>Today</button>
+        <button
+          class="today"
+          id="open-settings"
+          aria-label="Settings"
+          @click=${() => {
+            this._settingsOpen = true;
+          }}
+        >
+          Settings
+        </button>
       </header>
 
       ${this._error
@@ -430,7 +450,7 @@ export class MonthView extends LitElement {
         : nothing}
       ${this._failed.length && !this._error
         ? html`<p class="warn" role="status">
-            Not showing ${this._failed.join(", ")} — check people.json.
+            Not showing ${this._failed.join(", ")} — check Settings.
           </p>`
         : nothing}
       ${this._rosterLoaded && this._roster.people.length === 0
@@ -506,6 +526,18 @@ export class MonthView extends LitElement {
           `,
         )}
       </div>
+
+      ${this._settingsOpen
+        ? html`
+            <hacal-people-settings
+              .client=${this.client}
+              @settings-close=${() => {
+                this._settingsOpen = false;
+              }}
+              @roster-changed=${() => void this.#loadRoster()}
+            ></hacal-people-settings>
+          `
+        : nothing}
 
       ${this._dialogMode
         ? html`

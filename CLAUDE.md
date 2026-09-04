@@ -27,6 +27,7 @@ a nice-to-have.**
 | Events stay RFC 5545-clean | [ADR-0009](docs/DECISIONS.md#adr-0009) |
 | UI code depends on `HaClient`, never on `hass` | [ADR-0005](docs/DECISIONS.md#adr-0005) |
 | A person **is** a calendar entity | no `ATTENDEE` field, [ADR-0017](docs/DECISIONS.md#adr-0017) |
+| The roster is HA labels, never a file in this repo | forkable by anyone, [ADR-0026](docs/DECISIONS.md#adr-0026) |
 | The "who?" picker is intent, never auth | [ADR-0018](docs/DECISIONS.md#adr-0018) |
 
 ## Gotchas that have already bitten us
@@ -108,10 +109,25 @@ a nice-to-have.**
     optional in `HaCalendarEvent`, not nullable, so a guard like
     `if (e.recurrence_id !== null)` wrongly passes on `undefined`.
 
+13. **A person is an HA label, not a file.** The roster is the label registry
+    plus the entity registry ([ADR-0026]); a label attached to a `calendar.*`
+    entity *is* a person, and a label without one is ignored. `label_id`
+    survives renames, which is what makes it usable as the permanent id the
+    logbook needs. There is no `people.json` — two earlier designs had one and
+    both were wrong, for different reasons.
+
+14. **Creating a calendar is the only REST call in the app.** Config entry
+    flows have no websocket equivalent, which is the sole reason
+    `HaClient.callApi` exists. Under `vite dev` the page origin must appear in
+    `cors_allowed_origins`, and `127.0.0.1:5173` is **not** the same origin as
+    `localhost:5173`. Symptom: `Failed to fetch` when adding a person. Served
+    from HA it is same-origin and cannot happen.
+
 [ADR-0013]: docs/DECISIONS.md#adr-0013
 [ADR-0017]: docs/DECISIONS.md#adr-0017
 [ADR-0019]: docs/DECISIONS.md#adr-0019
 [ADR-0022]: docs/DECISIONS.md#adr-0022
+[ADR-0026]: docs/DECISIONS.md#adr-0026
 
 ## Environment bug on this machine
 
@@ -159,14 +175,15 @@ src/panel.ts            custom element for panel_custom (mount point 1)
 src/standalone.ts       own websocket connection + token setup form
 src/ha/client.ts        HaClient — the seam both mount points share
 src/ha/calendar.ts      typed CRUD over calendar/event/*
-src/people.ts           people.json roster loader (ADR-0021)
+src/people.ts           roster vocabulary: Person, Roster, palette
+src/ha/roster.ts        roster read/write via HA's label registry (ADR-0026)
 src/ui/month-view.ts    the month grid (lit element)
 src/ui/event-dialog.ts  touch-first create/edit/delete sheet
 src/ui/person-picker.ts the "who?" picker (ADR-0018) -- reused in Phase 3
+src/ui/people-settings.ts add/edit/remove people, in-app (ADR-0026)
 src/ui/event-form.ts    form <-> HA event conversion, unit-tested
 src/ui/grid.ts          pure grid/date maths — no lit, unit-tested
 src/**/*.test.ts        node:test suites, run by `npm test`
-public/                 copied beside the bundle; people.json lives here
 scripts/                test-only module resolver (.js specifier -> .ts)
 dev/                    HA Container config (see ADR-0023: also production)
 docs/                   DECISIONS, PLAN, STATUS

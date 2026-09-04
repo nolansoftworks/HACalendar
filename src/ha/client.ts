@@ -24,6 +24,14 @@ export interface HaClient {
     service: string,
     data?: Record<string, unknown>,
   ): Promise<unknown>;
+  /**
+   * REST call against `/api/<path>`.
+   *
+   * Almost everything here speaks websocket. This exists for the one thing
+   * that has no websocket equivalent: config entry flows, which is how a
+   * `local_calendar` gets created ([ADR-0026]). Prefer `callWS`.
+   */
+  callApi<T>(method: string, path: string, body?: unknown): Promise<T>;
 }
 
 /** Shape of the `hass` object HA sets on a custom panel element. */
@@ -35,6 +43,7 @@ export interface HassLike {
     service: string,
     data?: Record<string, unknown>,
   ): Promise<unknown>;
+  callApi<T>(method: string, path: string, parameters?: unknown): Promise<T>;
 }
 
 // HA replaces the `hass` object on every state change. Building a fresh
@@ -55,10 +64,17 @@ export function clientFromHass(hass: HassLike): HaClient {
       connection.subscribeMessage(callback, msg),
     callService: (domain, service, data) =>
       hass.callService(domain, service, data),
+    callApi: (method, path, body) => hass.callApi(method, path, body),
   };
 
   adapterCache.set(connection, client);
   return client;
+}
+
+/** The bits of `Auth` we need to make a REST call from the standalone page. */
+interface AuthLike {
+  accessToken?: string;
+  data?: { hassUrl?: string; access_token?: string };
 }
 
 /** Adapter for mount point 2: standalone page, own websocket connection. */
@@ -77,6 +93,27 @@ export function clientFromConnection(connection: Connection): HaClient {
         service,
         service_data: data ?? {},
       }),
+    // No `hass` here, so the REST call is assembled by hand from the auth the
+    // websocket connection is already using.
+    callApi: async (method, path, body) => {
+      const auth = (connection.options as { auth?: AuthLike }).auth;
+      const token = auth?.accessToken ?? auth?.data?.access_token;
+      const baseUrl = auth?.data?.hassUrl ?? "";
+      if (!token) throw new Error("Not signed in to Home Assistant.");
+
+      const response = await fetch(`${baseUrl}/api/${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`);
+      }
+      return response.status === 204 ? undefined : await response.json();
+    },
   };
 
   adapterCache.set(connection, client);
