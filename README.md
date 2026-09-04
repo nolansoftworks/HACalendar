@@ -95,6 +95,48 @@ Then, once:
    by script rather than by hand. See gotcha 5 in [`CLAUDE.md`](CLAUDE.md).
 3. Add a couple of events so the grid has something to show.
 
+### Setting up your household
+
+The calendar works out of the box with just `calendar.family`. To get a
+color-coded calendar per person, create one `local_calendar` per member and
+then tell the app about them.
+
+**This repo deliberately ships no roster** — a fork should not arrive carrying
+someone else's family ([ADR-0025](docs/DECISIONS.md#adr-0025)). Your roster
+lives on your server, outside the build:
+
+```bash
+mkdir -p config/www/hacalendar-config
+cp public/people.example.json config/www/hacalendar-config/people.json
+# then edit it
+```
+
+That directory is **not** the build output. `config/www/hacalendar/` is wiped
+on every build, so a roster kept beside the bundle would vanish on your next
+deploy; this one survives upgrades and is never committed. Edit it and reload —
+no rebuild needed.
+
+Each person needs a `calendar.<id>` entity. Creating five by hand is tedious,
+and the config flow is scriptable, so this works instead:
+
+```bash
+for NAME in Alex Sam Rowan; do
+  FLOW=$(curl -s -X POST "$HA/api/config/config_entries/flow" \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d '{"handler":"local_calendar"}' | jq -r .flow_id)
+  curl -s -X POST "$HA/api/config/config_entries/flow/$FLOW" \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"calendar_name\":\"$NAME\",\"import\":\"create_empty\"}" > /dev/null
+done
+```
+
+Until a roster exists the grid shows the shared calendar and a one-line hint
+naming the file to create, so an unconfigured install explains itself rather
+than looking broken.
+
+`id` is permanent — it is what chore completions get logged against, so
+renaming it orphans that history. Display names can change freely.
+
 Now build the bundle into HA's `www/`:
 
 ```bash

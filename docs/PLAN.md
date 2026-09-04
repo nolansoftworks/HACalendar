@@ -106,14 +106,16 @@ their correct dates.
 - A per-person calendar that 404s is **soft-failed**: the other calendars still
   render and the grid shows a small warning naming the bad entity. A blank
   calendar in the kitchen is worse than an incomplete one.
-- The roster is populated: Brittany, Ben, Grayson, Paxtyn, Emersyn, each with
-  a `calendar.<id>` created over the scriptable config flow (`CLAUDE.md`
-  gotcha 5). No one touched the HA UI.
+- Verified with a five-person household, each member having a `calendar.<id>`
+  created over the scriptable config flow (`CLAUDE.md` gotcha 5). Nobody
+  touched the HA UI. The roster itself is operator config and deliberately
+  lives outside this repo ([ADR-0025]).
 - Colors were chosen dark enough that `readableTextOn()` returns white for all
   five, so chip text is uniform rather than flipping between black and white.
 - Verified with all six calendars live and one event per person on the **same
   day**: every chip took its owner's color, the all-day event sorted above the
-  timed ones, and hiding everyone except Paxtyn left exactly his event.
+  timed ones, and hiding everyone but one person left exactly that person's
+  event.
 
 **Chore lists are deliberately absent from the roster.** `choreList` stays
 unset until Phase 3 creates the `todo.chores_<kid>` entities — pointing the

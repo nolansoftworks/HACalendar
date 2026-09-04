@@ -27,6 +27,7 @@ import {
   FAMILY_COLOR,
   FAMILY_LABEL,
   FAMILY_OWNER_ID,
+  ROSTER_SETUP_HINT,
   loadRoster,
   type Roster,
 } from "../people.js";
@@ -61,6 +62,7 @@ export class MonthView extends LitElement {
     _hidden: { state: true },
     _error: { state: true },
     _failed: { state: true },
+    _rosterLoaded: { state: true },
     _dialogMode: { state: true },
     _dialogDay: { state: true },
     _dialogEvent: { state: true },
@@ -81,6 +83,8 @@ export class MonthView extends LitElement {
   _error: string | null = null;
   /** Entity ids that could not be subscribed -- usually a typo in people.json. */
   _failed: string[] = [];
+  /** Distinguishes "no roster configured" from "roster not fetched yet". */
+  _rosterLoaded = false;
 
   _dialogMode: "create" | "edit" | null = null;
   _dialogDay: Date | null = null;
@@ -117,6 +121,7 @@ export class MonthView extends LitElement {
 
   async #loadRoster(): Promise<void> {
     this._roster = await loadRoster(this.rosterUrl);
+    this._rosterLoaded = true;
   }
 
   /** The shared calendar first, then one per person that declares one. */
@@ -428,6 +433,9 @@ export class MonthView extends LitElement {
             Not showing ${this._failed.join(", ")} — check people.json.
           </p>`
         : nothing}
+      ${this._rosterLoaded && this._roster.people.length === 0
+        ? html`<p class="hint">${ROSTER_SETUP_HINT}</p>`
+        : nothing}
       ${targets.length > 1
         ? html`
             <div class="filters">
@@ -566,6 +574,14 @@ export class MonthView extends LitElement {
       border-radius: 8px;
       background: #fdecea;
       color: #8c1d18;
+    }
+    .hint {
+      margin: 0 16px 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: #eef6f8;
+      color: #22606d;
+      font-size: 0.8rem;
     }
     .warn {
       margin: 0 16px 8px;

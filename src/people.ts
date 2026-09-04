@@ -30,6 +30,10 @@ export const FAMILY_OWNER_ID = "__family";
 export const FAMILY_LABEL = "Family";
 export const FAMILY_COLOR = "#0b7285";
 
+/** Shown when no roster is configured, so a fresh install explains itself. */
+export const ROSTER_SETUP_HINT =
+  "No people configured yet — add config/www/hacalendar-config/people.json to show a calendar per person.";
+
 /**
  * Used when `people.json` is missing or unreadable. It must still produce a
  * working wall calendar: a blank grid in the kitchen is worse than an
@@ -38,23 +42,34 @@ export const FAMILY_COLOR = "#0b7285";
 export const DEFAULT_ROSTER: Roster = { weekStartsOn: 0, people: [] };
 
 /**
- * Where to look for `people.json`, in order.
+ * Where the operator's roster lives, and why it is not in this repo.
  *
- * The file ships in `public/`, so Vite copies it beside the bundle and HA
- * serves it from `/local/hacalendar/people.json`. Resolving relative to
- * `import.meta.url` covers that for both mount points, but this module may be
- * bundled into `chunks/`, so the parent directory is tried too. The absolute
- * path is the backstop for when HA serves us and both relative guesses miss.
+ * This project is meant to be forked and run against someone else's Home
+ * Assistant, so a household's actual members are **their** config, not our
+ * source. The roster is therefore read from a directory the build never
+ * touches:
+ *
+ *     config/www/hacalendar-config/people.json   ->  /local/hacalendar-config/people.json
+ *
+ * That path matters. The bundle is emitted into `config/www/hacalendar/` with
+ * Vite's `emptyOutDir`, which deletes everything in that folder on every
+ * build -- so a roster kept beside the bundle would be destroyed by the next
+ * deploy. Keeping it in a sibling directory means it survives upgrades, is
+ * never committed, and differs per household without anyone forking the code.
+ *
+ * The relative candidates after it exist only so `vite dev` can serve a local
+ * `public/people.json` (git-ignored) while working on the UI.
  */
+const OPERATOR_ROSTER_URL = "/local/hacalendar-config/people.json";
+
 function candidateUrls(): string[] {
-  const urls: string[] = [];
+  const urls: string[] = [OPERATOR_ROSTER_URL];
   try {
     urls.push(new URL("people.json", import.meta.url).href);
     urls.push(new URL("../people.json", import.meta.url).href);
   } catch {
     // import.meta.url unavailable (very old bundling path); fall through.
   }
-  urls.push("/local/hacalendar/people.json");
   return urls;
 }
 

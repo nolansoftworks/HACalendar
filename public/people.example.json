@@ -1,18 +1,39 @@
 {
+  "_comment": [
+    "Copy this to config/www/hacalendar-config/people.json on your Home Assistant",
+    "server and edit it. That directory is NOT the build output, so it survives",
+    "every upgrade -- the bundle in config/www/hacalendar/ is wiped on each build.",
+    "",
+    "Each person needs a calendar entity. Create one per person under",
+    "Settings > Devices & Services > Add Integration > Local Calendar, or script",
+    "it over the REST API (see gotcha 5 in CLAUDE.md).",
+    "",
+    "'id' is permanent: it is what chore completions are logged against, so",
+    "renaming it orphans that history. The display name can change freely.",
+    "'choreList' and 'calendar' are both optional -- an adult who appears in the",
+    "'who?' picker but owns no chore list simply omits choreList.",
+    "'weekStartsOn' is 0 for Sunday, 1 for Monday."
+  ],
   "weekStartsOn": 0,
   "people": [
     {
-      "id": "emma",
-      "name": "Emma",
-      "color": "#e8590c",
-      "calendar": "calendar.emma",
-      "choreList": "todo.chores_emma"
+      "id": "alex",
+      "name": "Alex",
+      "color": "#a61e4d",
+      "calendar": "calendar.alex"
     },
     {
-      "id": "mom",
-      "name": "Mom",
-      "color": "#5f3dc4",
-      "calendar": "calendar.mom"
+      "id": "sam",
+      "name": "Sam",
+      "color": "#1864ab",
+      "calendar": "calendar.sam"
+    },
+    {
+      "id": "rowan",
+      "name": "Rowan",
+      "color": "#2b8a3e",
+      "calendar": "calendar.rowan",
+      "choreList": "todo.chores_rowan"
     }
   ]
 }

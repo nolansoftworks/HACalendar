@@ -80,10 +80,10 @@ Things actually observed, with the check that produced them.
 | **Multi-calendar overlay, colors, filters** | two throwaway calendars: `rgb(232, 89, 12)` and `rgb(95, 61, 196)` chips on the same day; toggling one hid only its events |
 | **`weekStartsOn` drives the grid** | flipping to `1` gave Mon–Sun headings and opened on Aug 31; events stayed on their dates |
 | **Grid maths unit-tested** | 18 `node:test` assertions, passing in UTC, Central, Tokyo and London |
-| **Six calendars overlay correctly** | `calendar.family` + Brittany/Ben/Grayson/Paxtyn/Emersyn, one event each on the same day, every chip its owner's color |
-| **Per-person isolation works** | hiding all but Paxtyn left exactly his event; the shared calendar hides with its own chip |
+| **Six calendars overlay correctly** | `calendar.family` + five per-person calendars, one event each on the same day, every chip its owner's color |
+| **Per-person isolation works** | hiding all but one person left exactly that person's event; the shared calendar hides with its own chip |
 | **Per-person calendars created without the HA UI** | all five made over the config-flow REST API |
-| **Create from the UI writes to the picked person's calendar** | tapped Sep 20, picked Grayson, typed a name — landed on `calendar.grayson`, chip in his green |
+| **Create from the UI writes to the picked person's calendar** | tapped Sep 20, picked a person, typed a name — landed on that person's calendar, chip in their color |
 | **Inclusive end date converts to HA's exclusive one** | UI end 22nd stored as `end: 2026-09-23` |
 | **Edit and delete from the UI** | rename persisted; delete needed a second tap and only then removed it |
 | **Recurring scope works both ways** | "only this one" renamed 1 of 4 instances; `THISANDFUTURE` changed 3 and preserved the earlier exception |

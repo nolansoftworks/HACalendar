@@ -687,6 +687,55 @@ against a touchscreen, with a child watching.
 
 ---
 
+## ADR-0025
+
+**The household roster is operator config, served from a directory the build never touches. It is not in this repo.**
+
+Status: **Accepted** · 2026-09-03 · refines [ADR-0021] · user decision
+
+This project is meant to be forked and pointed at someone else's Home
+Assistant. That makes a specific household's members **their** configuration,
+not our source code. Commit 98c2abe got this wrong: it put five real names and
+their calendar entities into the repository, so every fork would have shipped
+with another family's roster.
+
+**Decision.** The roster is read from
+
+```
+config/www/hacalendar-config/people.json   ->  /local/hacalendar-config/people.json
+```
+
+and `public/people.json` is git-ignored, existing only as a convenience for
+`vite dev`. `public/people.example.json` is committed and generic.
+
+**Why a sibling directory rather than beside the bundle.** The build emits into
+`config/www/hacalendar/` with Vite's `emptyOutDir`, which deletes that folder's
+contents on every build. A roster kept there would be destroyed by the next
+deploy — silently, and only noticed when the wall calendar lost everyone's
+colors. A sibling directory is outside the build's blast radius, survives
+upgrades, and is already covered by `.gitignore`'s `dev/config/*` rule.
+
+**Consequences.**
+
+- A fresh clone renders the shared calendar only, and says so: the grid shows
+  a one-line hint naming the file to create. An unconfigured install explains
+  itself rather than looking broken.
+- Changing the roster no longer needs a rebuild or a commit — edit the file and
+  reload. This also removes the awkwardness noted in Phase 1.5, where a roster
+  change was a deploy.
+- The `id` permanence rule from [ADR-0021] still holds, and now matters more:
+  it is per-household and nobody else's migration problem.
+- Still household-specific and worth genericising later: `dev/docker-compose.yml`
+  names the Compose project and container `nolanhaus`, and
+  `dev/config/configuration.yaml` sets `homeassistant.name`. Harmless to a
+  forker — HA's onboarding overrides the name in `.storage` — but they are not
+  neutral defaults.
+
+**Evidence.** `emptyOutDir: true` in `vite.config.ts`; `outDir` is
+`dev/config/www/hacalendar`. `.gitignore` already excludes `dev/config/*`.
+
+---
+
 [ADR-0001]: #adr-0001
 [ADR-0002]: #adr-0002
 [ADR-0003]: #adr-0003
