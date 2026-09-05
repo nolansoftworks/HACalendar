@@ -215,6 +215,33 @@ a nice-to-have.**
 [ADR-0032]: docs/DECISIONS.md#adr-0032
 [ADR-0033]: docs/DECISIONS.md#adr-0033
 
+## The server is a different PC. Never run Docker on the dev box.
+
+Home Assistant runs on the **always-on laptop at `192.168.1.197:8123`**, not on
+whatever machine this checkout is sitting on. `npm run ha:up` / `ha:down` /
+`ha:logs` and every `docker compose -f dev/docker-compose.yml …` line in these
+docs are **server-side** commands. Standing instruction from the household,
+2026-09-05: *"the server is on another pc so we will never run docker from this
+pc."*
+
+So `dev/config/` on a dev box holds source only — `configuration.yaml`,
+`automations/`, and the build output under `www/`. If it ever grows a
+`.storage/` or a `home-assistant_v2.db`, somebody booted HA locally by mistake;
+delete them.
+
+**Deploying is a push.** Commit to `main` here; the server pulls:
+
+```bash
+git pull && npm install && npm run build
+docker compose -f dev/docker-compose.yml restart   # only if configuration.yaml changed
+```
+
+**Verifying is a network call.** Drive the live instance over its websocket and
+REST API, and the real UI over CDP against `http://192.168.1.197:8123/local/
+hacalendar/index.html?ha=…&token=…`. If that host is unreachable, live
+verification is **blocked** — say so. Standing up a local container to stand in
+for it is not an acceptable substitute and is not allowed here.
+
 ## Environment bug on this machine
 
 `node@21.2.0` is installed as a **global npm package**. Its shim at
