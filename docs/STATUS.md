@@ -39,9 +39,10 @@ refresh, or bump `module_url` to `panel.js?v=N`, or you will conclude the build
 is broken when it isn't.
 
 **Phase 3's mechanics are done.** Everyone has a chore list, the Chores rail
-destination works, check-off asks who did it and records that in the logbook,
-and overdue chores say how late they are in words. What is left is a child
-using it — plus Phase 4's nightly materializer for recurring chores.
+destination works, check-off is one tap and records the completion in the
+logbook, chores can be deleted, and overdue ones say how late they are in
+words. What is left is a child using it — plus Phase 4's nightly materializer
+for recurring chores.
 
 **Lists** is the one rail item still disabled. It has no phase of its own yet;
 the obvious shape is "every `todo.*` entity that isn't somebody's chore list",
