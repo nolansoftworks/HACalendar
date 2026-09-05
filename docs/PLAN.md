@@ -414,25 +414,48 @@ response_variable: result
 
 ---
 
-## Phase 6 — iCloud sync (post-MVP)
+## Phase 6 — iCloud sync ⏸ **deferred by the household**
+
+**Opened 2026-09-04, investigated, and closed again without building
+anything** — the household's call: *"we aren't worrying about cloud syncing at
+this time, it's all local events, we will add cloud functionality later."*
+Everything below stands; nothing is blocked.
+
+**Do not start this because it is the next unticked phase.** It is deferred on
+purpose, the same way [ADR-0016] was.
 
 Per [ADR-0010]. `vdirsyncer` against `local_calendar`'s `.ics` → iCloud CalDAV.
 Explicitly **not** via HA's `caldav` integration, which cannot propagate edits
 or deletes.
 
-Blocked on nothing. Phases 1–5 owe this phase exactly one thing — stable,
-preserved UIDs — already guaranteed by [ADR-0009].
-
-- [ ] Conflict resolution policy — decided **at Phase 6 entry**, not before
-      ([ADR-0016]). Do not invent one earlier.
+- [x] Conflict resolution policy — asked at Phase 6 entry as [ADR-0016]
+      requires. The household chose two-way sync and **the wall calendar wins**.
+      Recorded as intent in [ADR-0031], *not* as a tested design — re-confirm it
+      on contact with `vdirsyncer`.
+- [x] Verify UIDs survive a round trip ([ADR-0009] pays off — it does, both for
+      HA's own events and for externally-authored ones, across a reload)
 - [ ] App-specific password handling
-- [ ] Verify UIDs survive a round trip ([ADR-0009] pays off or doesn't, here)
+- [ ] **A sync must reload the config entry when it finishes** — see below.
+      This is not optional and [ADR-0010] does not mention it.
+
+**What the investigation found, and why it matters more than the checklist.**
+`local_calendar` reads its `.ics` **once**, at setup, and every write
+serializes its whole in-memory copy back over the file. Verified against real
+HA in a throwaway container: an event written into the file by anything else is
+invisible to HA, and HA's very next write **deletes it, silently**. An event
+added on a phone would vanish the moment somebody touched the kitchen screen.
+
+`POST /api/config/config_entries/entry/<id>/reload` makes HA pick the file up,
+UIDs intact. So the shape is **sync, then reload, in the same run** — with a
+residual race that a sync going through HA's *API* instead of the file would
+not have. Full detail and evidence in [ADR-0031].
 
 `local_todo` also persists as iCalendar (`VTODO`), so chores could sync to Apple
 Reminders by the same route. Not planned; noted because it's nearly free.
 
 **Exit criterion:** an event created on the wall panel appears on an iPhone, and
-an event deleted on the iPhone disappears from the wall panel.
+an event deleted on the iPhone disappears from the wall panel. Unchanged, and
+not being pursued yet.
 
 ---
 
@@ -442,8 +465,12 @@ an event deleted on the iPhone disappears from the wall panel.
 - **Supporting Android < 5.0.** Would force real legacy shims ([ADR-0015]).
   Older-but-supported devices get Firefox, not shims.
 - **Internet exposure of the standalone page.** See [ADR-0007].
-- **Deciding the sync conflict policy now.** See [ADR-0016]. A future agent
-  will be tempted to "resolve" this. Don't.
+- **Cloud sync of any kind, for now.** iCloud, Google, anything. Explicit
+  household decision on 2026-09-04 ([ADR-0031]): it is all local events until
+  they ask otherwise. Phase 6 being unticked is not an invitation.
+- **Letting anything but HA write `local_calendar`'s `.ics`.** HA reads it once
+  and overwrites it wholesale; an external write is invisible and then deleted
+  without a word ([ADR-0031]).
 - **Per-kid HA accounts.** The picker is attribution, not auth ([ADR-0018]).
 - **Encoding the person into event text.** No `ATTENDEE` field exists; the
   answer is per-person calendars ([ADR-0017]), not string parsing.
@@ -474,3 +501,4 @@ an event deleted on the iPhone disappears from the wall panel.
 [ADR-0028]: DECISIONS.md#adr-0028
 [ADR-0029]: DECISIONS.md#adr-0029
 [ADR-0030]: DECISIONS.md#adr-0030
+[ADR-0031]: DECISIONS.md#adr-0031

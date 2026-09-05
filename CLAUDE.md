@@ -165,7 +165,25 @@ a nice-to-have.**
     is fine. It is still never allowed to pass a name to `update_item` or
     `remove_item`.
 
+18. **Never write `local_calendar`'s `.ics` yourself. HA will eat it.**
+    `local_calendar` reads `.storage/local_calendar.<key>.ics` **once**, at
+    setup, and every write serializes its whole in-memory calendar back over
+    the file. So an external write is invisible to HA, and HA's next write
+    **deletes it silently** — no error, no log line. Verified against real HA,
+    2026-09-04 ([ADR-0031]). This is exactly what [ADR-0010] proposes doing
+    with `vdirsyncer`, which is why that plan now carries a mandatory
+    "reload the config entry afterwards" step
+    (`POST /api/config/config_entries/entry/<id>/reload`). Reading the file is
+    fine — that is all the backup does.
+
+19. **Cloud sync is deferred by the household, not waiting to be picked up.**
+    Phase 6 sits unticked on purpose ([ADR-0031], 2026-09-04): it is all local
+    events until they ask. Do not start it because it looks like the next
+    phase.
+
 [ADR-0008]: docs/DECISIONS.md#adr-0008
+[ADR-0010]: docs/DECISIONS.md#adr-0010
+[ADR-0031]: docs/DECISIONS.md#adr-0031
 [ADR-0013]: docs/DECISIONS.md#adr-0013
 [ADR-0017]: docs/DECISIONS.md#adr-0017
 [ADR-0019]: docs/DECISIONS.md#adr-0019

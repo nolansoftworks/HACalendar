@@ -2,12 +2,17 @@
 
 **Last updated:** 2026-09-04
 **Current phase:** Phase 5 — Deployment (`docs/PLAN.md`) — backups done,
-kiosk waiting on hardware
+kiosk waiting on hardware. **Phase 6 is deferred by the household**, not
+pending ([ADR-0031]).
 **Blocked on:** people, a restart, and hardware nobody has bought yet. Phase 2
 needs a non-technical adult on the touchscreen; Phase 3 needs a child actually
 using the chore board; Phases 4 and 5 both need the server to pull and restart
 before their automations load; Phase 5's kiosk half needs a Raspberry Pi and a
 Fire tablet that do not exist yet. Nothing is blocked on a protocol question.
+
+**There is no phase left to build right now.** Every remaining item is waiting
+on a person, a reboot, or hardware. The one piece of unblocked *code* work is
+the **Lists** rail destination, which has no phase of its own — see below.
 
 Keep this file honest. The single most useful thing it does is separate what
 has been **observed** from what has only been **built**. A passing typecheck is
@@ -93,9 +98,16 @@ and no Fire OS tablet in the house yet (confirmed 2026-09-04). Kiosk autostart
 and screen-blanking config written against a guessed OS image would look
 finished and boot into nothing, so none of it exists.
 
-**Lists** is the one rail item still disabled. It has no phase of its own yet;
-the obvious shape is "every `todo.*` entity that isn't somebody's chore list",
-which would make the shopping list HA already ships appear for free.
+**Lists** is the one rail item still disabled, and now the only unblocked piece
+of code work in the repo. It has no phase of its own yet; the obvious shape is
+"every `todo.*` entity that isn't somebody's chore list", which would make the
+shopping list HA already ships appear for free. The live instance already has a
+`todo.shopping_list` sitting unlabelled and unused.
+
+**Cloud sync is deferred, not pending.** Asked on 2026-09-04, the household
+said it is all local events for now and cloud comes later ([ADR-0031]). Phase 6
+was investigated far enough to find that [ADR-0010]'s stated approach would
+lose data, and then deliberately not built.
 
 ---
 
@@ -197,6 +209,10 @@ Things actually observed, with the check that produced them.
 | **Retention keeps the newest N** | five runs at `BACKUP_KEEP=3` left exactly the three newest, pruning as it went |
 | **An empty `/config` fails loudly and leaves nothing behind** | 92-byte archive discarded, exit 1 — and four consecutive failures cost **zero** good backups, which is the whole point of discarding it |
 | **A missing `/backup` mount fails rather than writing into the container** | exit 1 with a message naming `docker-compose.yml` |
+| **`local_calendar` never notices its `.ics` changing** | appended a `VEVENT` to the file of a live calendar in a throwaway HA; the subscription still reported only HA's own events |
+| **...and HA's next write destroys the external one, silently** | one `calendar/event/create` later, the appended event was gone from disk. No error, no log line. This is [ADR-0010]'s whole plan failing |
+| **Reloading the config entry picks the file up** | `POST /api/config/config_entries/entry/<id>/reload` — all three events visible afterwards |
+| **UIDs survive a round trip through the file** | both HA's own uids and an externally-authored `UID:from-iphone-0001` came back intact after the reload — [ADR-0009] paying off, as [ADR-0016] predicted it would be the only thing Phase 6 needed |
 
 ---
 
@@ -312,7 +328,7 @@ does not always inherit the container's `TZ`; they must agree.
 
 ## Decision log health
 
-`docs/DECISIONS.md` holds 30 ADRs. **[ADR-0006] is superseded by [ADR-0023]**
+`docs/DECISIONS.md` holds 31 ADRs. **[ADR-0006] is superseded by [ADR-0023]**
 (server moved from a headless Pi to the always-on laptop; the Pi is now a kiosk
 client). The ones most likely to be wrongly "corrected" by a future agent,
 because they contradict HA's own documentation or look like over-engineering:
@@ -325,8 +341,12 @@ because they contradict HA's own documentation or look like over-engineering:
   polyfill built-ins.
 - **[ADR-0013]** — "just bump the due date so it looks fresh" destroys the only
   record that a chore was missed.
-- **[ADR-0016]** — an unanswered question that is *supposed* to stay unanswered
-  until Phase 6. Do not helpfully resolve it.
+- **[ADR-0016]** — was an unanswered question that was *supposed* to stay
+  unanswered until Phase 6. It was asked at Phase 6 entry and answered
+  ([ADR-0031]); the answer is recorded intent, not a tested design.
+- **[ADR-0031]** — "just point vdirsyncer at the `.ics`" is what [ADR-0010]
+  says and it silently loses data. Also: cloud sync is deferred *by the
+  household*, so Phase 6 sitting unticked is not a to-do.
 - **[ADR-0017]** — "the user asked for one shared calendar" is true of the
   *view*, not the storage. Collapsing to one entity looks like simplification
   and destroys filtering, coloring, and Phase 6 sync.
@@ -356,3 +376,5 @@ because they contradict HA's own documentation or look like over-engineering:
 [ADR-0026]: DECISIONS.md#adr-0026
 [ADR-0029]: DECISIONS.md#adr-0029
 [ADR-0030]: DECISIONS.md#adr-0030
+[ADR-0010]: DECISIONS.md#adr-0010
+[ADR-0031]: DECISIONS.md#adr-0031

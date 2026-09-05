@@ -1060,6 +1060,74 @@ and pairing through the second label produced the five chore lists.
 
 ---
 
+## ADR-0031
+
+**Nothing but Home Assistant may write `local_calendar`'s `.ics`. Cloud sync stays deferred.**
+
+Status: **Accepted** · 2026-09-04 · amends [ADR-0010], answers [ADR-0016]
+
+Phase 6 was opened, investigated, and **deliberately closed again without
+building anything** — the household's decision: *"we aren't worrying about
+cloud syncing at this time, it's all local events, we will add cloud
+functionality later."* What follows is what the investigation found, recorded
+now because it is the expensive part and because [ADR-0010] as written would
+lose data.
+
+**[ADR-0010] says the path is "`vdirsyncer` against `local_calendar`'s
+`.ics`". That does not work as stated.** `local_calendar` reads its file
+**once**, at `async_setup_entry`, keeps the parsed calendar in memory, and on
+every write serializes that whole in-memory copy back over the file. There is
+no file watcher and no reload-on-change. So:
+
+1. An inbound edit written into the `.ics` is **invisible** to HA.
+2. The **next** write from HA **destroys it**, wholesale and silently — no
+   error, no log line, nothing in the UI.
+
+In household terms: an event added on someone's iPhone would disappear the
+moment anybody touched the kitchen screen, and nobody would ever know why.
+
+**Evidence** — real HA `2026.7.2` in a throwaway container, 2026-09-04, driven
+over its own APIs:
+
+- created an event from HA, then appended a `VEVENT` to
+  `.storage/local_calendar.lab.ics` exactly as a sync tool would. HA's
+  subscription still reported only its own event.
+- created a second event from HA. The externally-added event was **gone from
+  disk**, silently.
+- restored it and called
+  `POST /api/config/config_entries/entry/<id>/reload`. HA then saw all three
+  events, and **UIDs survived** — both the externally-authored one and HA's
+  own, which is what [ADR-0009] promised Phase 6.
+- source confirms it: `store.py` is a bare read/write pair, and
+  `calendar.py`'s `_async_store()` writes `IcsCalendarStream.calendar_to_ics`
+  of the in-memory calendar.
+
+**Decision.**
+
+- **Treat the `.ics` as HA's private state, not as an interchange file.**
+  Nothing may write it while HA is running. This applies to backups too, which
+  is why `dev/backup-config.sh` only ever *reads* it.
+- **When Phase 6 does happen, a sync is not complete until the config entry is
+  reloaded.** Sync, then reload, in that order, in the same run.
+- The remaining risk after that is a narrow race: an HA write landing between
+  the sync and the reload still destroys the inbound change. Scheduling the run
+  at an hour when nobody is awake makes it small, not zero. A sync that goes
+  **through HA's API** instead of the file has no such window, and is the
+  honest answer if this household ever wants sync it can rely on.
+
+**Recorded intent, not yet a commitment.** Asked at Phase 6 entry as
+[ADR-0016] requires, the household chose two-way sync with the sync-then-reload
+shape, and *the wall calendar wins* a conflict — the kitchen screen is the copy
+everyone has seen. Both answers were given before any of it was built, so
+[ADR-0016]'s warning still applies: **re-confirm them on contact with
+`vdirsyncer`**, and do not treat these two lines as a design that was tested.
+
+**Consequences.** Phases 1–5 owe Phase 6 nothing further; stable UIDs are
+verified in both directions now, not merely promised. Phase 6 remains blocked
+on nothing but the household wanting it.
+
+---
+
 [ADR-0001]: #adr-0001
 [ADR-0002]: #adr-0002
 [ADR-0003]: #adr-0003
@@ -1086,3 +1154,4 @@ and pairing through the second label produced the five chore lists.
 [ADR-0030]: #adr-0030
 [Phase 1]: PLAN.md#phase-1--live-month-view--current
 [Phase 4]: PLAN.md#phase-4--recurring-chores
+[ADR-0031]: #adr-0031
