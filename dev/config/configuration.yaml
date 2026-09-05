@@ -30,6 +30,13 @@ panel_custom:
 # error anywhere. Verified 2026-09-04.
 automation nightly_chores: !include_dir_merge_list automations/
 
+# Backing up the config volume ([ADR-0023] -- HA Container has no snapshots).
+# `shell_command` does not run a shell, so this calls one explicitly; the
+# script is mounted read-only by docker-compose.yml. It returns its output in
+# `stdout`, which the automation logs, so a silently-failing backup is visible.
+shell_command:
+  backup_config: /bin/sh /backup-config.sh
+
 # local_calendar is config-flow only -- it cannot be set up from YAML.
 # After first boot: Settings → Devices & Services → Add Integration →
 # "Local Calendar", name it "Family". That yields calendar.family.

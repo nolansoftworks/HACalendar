@@ -142,6 +142,41 @@ The automation hardcodes nothing about the household — it derives every
 (schedule calendar → chore list) pair from HA's label registry ([ADR-0030]), so
 adding a person in the app is enough.
 
+### Backups
+
+`shell_command.backup_config` runs `dev/backup-config.sh` **inside the HA
+container**, and an automation calls it nightly at 03:30. In-container on
+purpose: HA Container has no Supervisor and no snapshot button ([ADR-0011]), and
+this way the schedule works identically whether the server runs Windows, macOS
+or Linux — no cron, no Task Scheduler, nothing set up twice.
+
+Archives land in `dev/backups/`, beside `docker-compose.yml` and *outside* the
+volume being copied. Newest 14 kept. That directory holds the household's only
+copy of every calendar, every chore list, and the label registry that **is** the
+roster ([ADR-0026]) — it is gitignored, and it should never be committed.
+
+It survives a bad config, a botched upgrade or a mistaken delete. It does not
+survive the disk dying. To fix that, point the mount somewhere else:
+
+```yaml
+    volumes:
+      - /mnt/nas/hacalendar:/backup     # instead of ./backups:/backup
+```
+
+Mount the share on the **host** before Docker starts, or the container will
+happily write into an empty directory and every backup will succeed into
+nowhere.
+
+Check it end to end after any change — Developer Tools → Actions, YAML mode:
+
+```yaml
+action: shell_command.backup_config
+response_variable: result
+```
+
+`returncode: 0`, and `stdout` names the archive. Restoring is `tar xzf` into
+the config directory with HA stopped.
+
 ---
 
 ## 3. Onboard

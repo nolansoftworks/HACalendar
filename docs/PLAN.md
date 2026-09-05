@@ -221,8 +221,10 @@ prefilled to that hour.
   frozen; and the grid must auto-scroll to now, or it opens at 7am while the
   day is happening at 5pm.
 
-**Still to do here:** the strip counts *calendar events*. Phase 3 adds the
-chore half, which is what the reference's `2/2` actually measures.
+**Settled since:** the strip counts *calendar events*, plus a single "2 chores"
+badge for what somebody owes today. The full chore tally lives on the chore
+board's own column headers instead — putting it in both places produced two
+rows of the same five names, one above the other.
 
 ---
 
@@ -263,10 +265,14 @@ id, and deleting takes two taps and then removes exactly that item. Adding a
 chore whose name already exists is *mentioned* and then allowed, and both
 copies came back with distinct uids.
 
-The person strip is informational on the chore board — the columns are already
-separate, so filtering there only made a name look broken. On the calendar it
-still filters, and now also shows how many chores each person owes **today**,
-counting anything due today plus anything already overdue.
+**The person strip does not appear on the chore board at all.** It was first
+made informational there — chips that showed chore counts but did not filter,
+since the columns are already separate and graying a name out only looked
+broken. That was still wrong: the column headers say the same thing, better,
+right above the chores themselves, so the screen carried two rows of the same
+five names. The strip is now calendar-only, where it filters and where it also
+shows how many chores each person owes **today** — due today plus already
+overdue — as a single badge.
 
 The exit criterion is about a child, not a protocol: *a child adds a task,
 picks their name, checks it off unprompted, it stays checked across a reload,
@@ -274,7 +280,7 @@ and the logbook shows who did it.* Nobody's children have tried it.
 
 ---
 
-## Phase 4 — Recurring chores 🔴 **← current**
+## Phase 4 — Recurring chores ✅ built, one deploy short
 
 Per [ADR-0008]: recurring chore = `RRULE` event on the person's chore schedule
 calendar, materialized into their chore list. Chores **roll over until
@@ -347,23 +353,64 @@ never passes a name to `update_item` or `remove_item`.
 
 ---
 
-## Phase 5 — Deployment
+## Phase 5 — Deployment 🔴 **← current**
 
 Server is the always-on laptop; the Pi is a kiosk client ([ADR-0023]). Much of
 this is already true — the server *is* the dev instance — so "deployment" here is
 mostly the kiosk and the backup story, not standing up a new box.
 
+**The backup half is done. The kiosk half is waiting on hardware that does not
+exist yet** — as of 2026-09-04 there is no Pi and no Fire tablet in the house.
+Writing kiosk autostart files and screen-blanking config for an unknown OS
+image would be guessing, and guessed config that has never booted is worse than
+none: it looks finished. Those items stay unticked and unwritten.
+
+- [x] **Scheduled backup of the `config/` volume** — no HA OS snapshots on
+      Container ([ADR-0023]); `local_calendar`, every chore list and the label
+      registry that *is* the roster all live in that one directory
+- [x] Backup runs **inside the HA container**, so it needs no host cron and no
+      Task Scheduler, and behaves the same whether the server is Windows or
+      Linux. 03:30, well clear of the 00:05 chore work
+- [x] Retention, and a guard against the silent failure that matters: an empty
+      archive is discarded rather than counted, so a broken backup cannot age
+      out the good ones
+- [x] A failed run raises a persistent notification. A backup failing quietly
+      for a month is the normal way this goes wrong
+- [ ] Point the backups at a NAS — the household's eventual intent. Today they
+      land on the server's own disk, which survives a bad config or a mistaken
+      delete but **not** a dead drive. One line in `docker-compose.yml`
+- [ ] Container `restart: unless-stopped` verified across a laptop reboot —
+      it is set; nobody has rebooted
 - [ ] Raspberry Pi: normal OS + Chromium kiosk, autostart, pointed at
       `http://<laptop>:8123/family-calendar`, idling on the Today view
-      ([ADR-0020])
-- [ ] Screen blanking / wake-on-touch on the Pi
-- [ ] **Scheduled backup of the `config/` volume** — no HA OS snapshots on
-      Container ([ADR-0023]); `local_calendar` and chores live in that volume
-- [ ] Container `restart: unless-stopped` verified across a laptop reboot
-- [ ] **Test on a real Fire OS 7 tablet** — the first true check of [ADR-0003]
+      ([ADR-0020]) — **no Pi yet**
+- [ ] Screen blanking / wake-on-touch on the Pi — **no Pi yet**
+- [ ] **Test on a real Fire OS 7 tablet** — the first true check of
+      [ADR-0003] — **no tablet yet**
 
 **Exit criterion:** the calendar survives a laptop reboot and an HA image
 upgrade untouched, and the wall Pi returns to the Today view on its own.
+Neither half is met: the reboot has not been tried, and there is no Pi.
+
+**Verified so far.** The backup script was run under busybox `sh` — the
+constrained case, since the HA image is Alpine — against a config tree holding
+a real `.ics`, a chore list and a label registry. It archived exactly those,
+excluded the recorder database, the build output, logs and caches, pruned to
+the newest N across repeated runs, exited non-zero with nothing left behind on
+an empty `/config`, exited non-zero when `/backup` was not mounted, and four
+consecutive failures cost zero good backups. The newest archive was then
+extracted and every restored file matched the original by checksum — because a
+backup nobody has restored is not a backup.
+
+**Not verified:** that HA's `shell_command` finds the script and that the 03:30
+trigger fires. Both need the same deploy Phase 4 does. After restarting the
+server, this checks it end to end and prints what the script said:
+
+```yaml
+# Developer Tools → Actions → YAML mode
+action: shell_command.backup_config
+response_variable: result
+```
 
 ---
 

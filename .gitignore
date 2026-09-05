@@ -13,3 +13,6 @@ dev/config/*
 
 # Build output lands inside the ignored dev config tree, but be explicit.
 dev/config/www/
+
+# Nightly config backups. Real household data — never commit these.
+dev/backups/

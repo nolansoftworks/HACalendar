@@ -181,6 +181,11 @@ persisted to `localStorage` afterward.
       calendar, and a nightly automation materializes today's instances onto
       their list at 00:05. Set it from the add-a-chore dialog; cancel it from
       the board.
+- [x] Nightly backup of the config volume — HA Container has no snapshots, and
+      every calendar, chore list and the roster itself live in that one
+      directory
+- [ ] Wall-mounted Pi in Chromium kiosk, and a real Fire OS 7 tablet — waiting
+      on the hardware
 - [ ] iCloud sync via `vdirsyncer` against the `local_calendar` `.ics`
 
 ## Production topology

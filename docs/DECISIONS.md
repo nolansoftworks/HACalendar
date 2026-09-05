@@ -859,7 +859,7 @@ app owns the whole screen.
 |---|---|
 | Left rail | Calendar (active), Chores, Lists, then Settings pinned to the bottom. A Home Assistant link lands here when there is an HA dashboard worth linking to |
 | Header | Household name + live clock, date navigation, view switch |
-| Person strip | One chip per person, colored, tapping filters the grid. Becomes chore progress in Phase 3 |
+| Person strip | One chip per person, colored, tapping filters the grid. Calendar only — the chore board has its own column headers |
 | Main | The calendar view |
 | Corner | Floating **+** to add an event |
 
@@ -947,8 +947,11 @@ means "in what you are looking at" without any extra fetching. Counts ignore
 the filter toggles — hiding someone must not zero their numbers, or the strip
 stops explaining why you hid them.
 
-This is the shape the chore progress bars will take in Phase 3; the reference
-shows `2/2` per person, and this is the calendar half of that.
+This is the shape the chore progress bars took in Phase 3 — the reference shows
+`2/2` per person — but they took it on the **chore board's own column headers**,
+not here. The strip briefly rendered on the board too and produced two rows of
+the same names, one above the other; it is calendar-only now, and carries just
+a "2 chores" badge for what somebody owes today.
 
 ---
 

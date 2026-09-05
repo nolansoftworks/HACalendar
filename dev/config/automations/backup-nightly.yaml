@@ -1,0 +1,53 @@
+# Nightly backup of the config volume -- Phase 5.
+#
+# HA Container has no Supervisor and therefore no snapshot button
+# ([ADR-0011], [ADR-0023]). Every `local_calendar` .ics, every chore list, and
+# the label registry that *is* the household roster ([ADR-0026]) live in one
+# directory, and nothing else copies it.
+#
+# 03:30, not midnight: [ADR-0022]'s sweep and the chore materializer run at
+# 00:05, and a backup taken mid-materialization would capture a half-built
+# day. By 03:30 the night's work is long done and nobody is awake to type
+# into the kitchen calendar.
+#
+# The result is written into the log and, if the script fails, into a
+# persistent notification -- because the only thing worse than no backup is
+# believing you have one.
+
+- id: hacalendar_backup_nightly
+  alias: Back up the config volume
+  description: >-
+    Tars /config into the ./backups directory beside docker-compose.yml and
+    keeps the newest 14. Runs inside the HA container, so it needs nothing set
+    up on the host.
+  mode: single
+  triggers:
+    - trigger: time
+      at: "03:30:00"
+  conditions: []
+  actions:
+    - action: shell_command.backup_config
+      response_variable: result
+
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ result.returncode == 0 }}"
+          sequence:
+            - action: logbook.log
+              data:
+                name: Backup
+                message: "{{ result.stdout | trim }}"
+      default:
+        # Loud, and it stays on screen until somebody dismisses it. A backup
+        # that has been failing quietly for a month is the normal way this
+        # goes wrong.
+        - action: persistent_notification.create
+          data:
+            title: Calendar backup failed
+            notification_id: hacalendar_backup_failed
+            message: >-
+              The nightly backup of Home Assistant's config exited
+              {{ result.returncode }}.
+
+              {{ (result.stderr or result.stdout) | trim }}

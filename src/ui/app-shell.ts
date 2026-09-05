@@ -766,6 +766,84 @@ export class AppShell extends LitElement {
     return choreProgress(items ?? [], this._now);
   }
 
+  /**
+   * The person strip: who is in the house, how their week is going, and the
+   * filter toggles.
+   *
+   * **Calendar only.** It used to render on the chore board too, in a
+   * non-filtering "static" mode, and the result was two rows of the same five
+   * names one above the other — the strip saying "Grayson 0/4, 1 late" and
+   * then the column header underneath saying "Grayson 0/4 done, 1 late". The
+   * board already answers every question the strip was there to answer, and
+   * answers it beside the chores themselves, so the strip is simply not the
+   * right surface there. Deleting the duplicate also gives the columns back a
+   * chunk of vertical space, which on a wall-mounted screen is the scarce
+   * resource.
+   */
+  #personStrip(targets: CalendarTarget[]) {
+    return html`
+      <div class="people">
+        ${targets.map((target) => {
+          const off = this._hidden.indexOf(target.ownerId) !== -1;
+          // Stats ignore the filter: hiding someone must not zero their
+          // counts, or the strip would stop telling you why you hid them.
+          const person = this._roster.people.filter(
+            (p) => p.id === target.ownerId,
+          )[0];
+          // Chores get one number here — what they owe *today* — because the
+          // calendar is where you ask "is anyone behind?", not "on what?".
+          const chores = person ? this.#choreProgressFor(person) : null;
+          const choresToday = chores ? chores.dueToday + chores.overdue : 0;
+          const stats = personStats(
+            this.#allEvents(),
+            target.ownerId,
+            this._now,
+          );
+          const done = stats.total
+            ? Math.round((stats.past / stats.total) * 100)
+            : 0;
+          return html`
+            <button
+              class="person ${off ? "off" : ""}"
+              aria-pressed=${off ? "false" : "true"}
+              title="${target.label}: ${stats.past} of ${stats.total} events past"
+              @click=${() => this.#toggleOwner(target.ownerId)}
+            >
+              <span
+                class="dot"
+                style="background:${target.color};color:${readableTextOn(
+                  target.color,
+                )}"
+                >${target.label.slice(0, 1).toUpperCase()}</span
+              >
+              <span class="who">
+                <span class="name">${target.label}</span>
+                <span class="counts">
+                  <b>${stats.past}</b>/${stats.total}
+                  ${stats.today
+                    ? html`<span class="badge">${stats.today} today</span>`
+                    : nothing}
+                  ${choresToday
+                    ? html`<span class="badge chores"
+                        >${choresToday}
+                        ${choresToday === 1 ? "chore" : "chores"}</span
+                      >`
+                    : nothing}
+                </span>
+                <span class="bar">
+                  <span
+                    class="fill"
+                    style="width:${done}%;background:${target.color}"
+                  ></span>
+                </span>
+              </span>
+            </button>
+          `;
+        })}
+      </div>
+    `;
+  }
+
   // --- render -------------------------------------------------------------
 
   override render() {
@@ -847,83 +925,7 @@ export class AppShell extends LitElement {
           ? html`<p class="hint">${ROSTER_SETUP_HINT}</p>`
           : nothing}
 
-        <div class="people">
-          ${targets.map((target) => {
-            const off = this._hidden.indexOf(target.ownerId) !== -1;
-            // Stats ignore the filter: hiding someone must not zero their
-            // counts, or the strip would stop telling you why you hid them.
-            const person = this._roster.people.filter(
-              (p) => p.id === target.ownerId,
-            )[0];
-            const allChores = person ? this.#choreProgressFor(person) : null;
-            const chores = this._section === "chores" ? allChores : null;
-            // On the calendar, say whether they owe chores *today*.
-            const choresToday =
-              this._section === "calendar" && allChores
-                ? allChores.dueToday + allChores.overdue
-                : 0;
-            // Filtering is a calendar idea. On the chore board every column is
-            // already separate, so graying a name out just looked broken.
-            const filterable = this._section === "calendar";
-            const stats = personStats(
-              this.#allEvents(),
-              target.ownerId,
-              this._now,
-            );
-            const shownDone = chores ? chores.done : stats.past;
-            const shownTotal = chores ? chores.total : stats.total;
-            const badge = chores ? chores.overdue : stats.today;
-            const badgeWord = chores ? "late" : "today";
-            const done = shownTotal
-              ? Math.round((shownDone / shownTotal) * 100)
-              : 0;
-            return html`
-              <button
-                class="person ${filterable && off ? "off" : ""} ${
-                  filterable ? "" : "static"
-                }"
-                aria-pressed=${filterable ? (off ? "false" : "true") : "false"}
-                title="${target.label}: ${shownDone} of ${shownTotal} ${
-                  chores ? "chores done" : "events past"
-                }"
-                @click=${() => {
-                  if (filterable) this.#toggleOwner(target.ownerId);
-                }}
-              >
-                <span
-                  class="dot"
-                  style="background:${target.color};color:${readableTextOn(
-                    target.color,
-                  )}"
-                  >${target.label.slice(0, 1).toUpperCase()}</span
-                >
-                <span class="who">
-                  <span class="name">${target.label}</span>
-                  <span class="counts">
-                    <b>${shownDone}</b>/${shownTotal}
-                    ${badge
-                      ? html`<span class="badge ${chores ? "overdue" : ""}"
-                          >${badge} ${badgeWord}</span
-                        >`
-                      : nothing}
-                    ${choresToday
-                      ? html`<span class="badge chores"
-                          >${choresToday}
-                          ${choresToday === 1 ? "chore" : "chores"}</span
-                        >`
-                      : nothing}
-                  </span>
-                  <span class="bar">
-                    <span
-                      class="fill"
-                      style="width:${done}%;background:${target.color}"
-                    ></span>
-                  </span>
-                </span>
-              </button>
-            `;
-          })}
-        </div>
+        ${this._section === "calendar" ? this.#personStrip(targets) : nothing}
 
         <div class="view">
           ${this._section === "chores"
@@ -1235,14 +1237,8 @@ export class AppShell extends LitElement {
       font-weight: 700;
       opacity: 1;
     }
-    .badge.overdue {
-      background: #c92a2a;
-    }
     .badge.chores {
       background: #495057;
-    }
-    .person.static {
-      cursor: default;
     }
     .badge {
       margin-left: 5px;

@@ -1,12 +1,13 @@
 # Status
 
 **Last updated:** 2026-09-04
-**Current phase:** Phase 4 — Recurring chores (`docs/PLAN.md`) — built and
-driven, waiting on one deploy
-**Blocked on:** people and a restart. Phase 2 needs a non-technical adult on
-the touchscreen; Phase 3 needs a child actually using the chore board; Phase 4
-needs the server to pull and restart so the nightly automation is actually
-loaded. Nothing is blocked on a protocol question.
+**Current phase:** Phase 5 — Deployment (`docs/PLAN.md`) — backups done,
+kiosk waiting on hardware
+**Blocked on:** people, a restart, and hardware nobody has bought yet. Phase 2
+needs a non-technical adult on the touchscreen; Phase 3 needs a child actually
+using the chore board; Phases 4 and 5 both need the server to pull and restart
+before their automations load; Phase 5's kiosk half needs a Raspberry Pi and a
+Fire tablet that do not exist yet. Nothing is blocked on a protocol question.
 
 Keep this file honest. The single most useful thing it does is separate what
 has been **observed** from what has only been **built**. A passing typecheck is
@@ -67,6 +68,30 @@ docker compose -f dev/docker-compose.yml restart   # configuration.yaml changed
 Then confirm an `automation.*` entity named *Chores — sweep and materialize*
 exists in Developer Tools → States. **If it doesn't, nothing will say so** —
 see the gotcha below.
+
+**Phase 5's backups are done and land in the same deploy.** `/config` is tarred
+nightly at 03:30 by a script running inside the HA container — no host cron, so
+it behaves the same on any server OS — into `dev/backups/` beside
+`docker-compose.yml`, newest 14 kept. That directory is the household's only
+copy of every calendar, every chore list and the roster itself. It survives a
+bad config or a mistaken delete; it does **not** survive the disk dying. The
+household intends a NAS eventually, which is one line in `docker-compose.yml`.
+
+After the restart, check the backup end to end — Developer Tools → Actions,
+YAML mode:
+
+```yaml
+action: shell_command.backup_config
+response_variable: result
+```
+
+`result.returncode` should be `0` and `result.stdout` should name the archive
+it wrote.
+
+**Phase 5's kiosk half is not started, on purpose.** There is no Raspberry Pi
+and no Fire OS tablet in the house yet (confirmed 2026-09-04). Kiosk autostart
+and screen-blanking config written against a guessed OS image would look
+finished and boot into nothing, so none of it exists.
 
 **Lists** is the one rail item still disabled. It has no phase of its own yet;
 the obvious shape is "every `todo.*` entity that isn't somebody's chore list",
@@ -149,7 +174,7 @@ Things actually observed, with the check that produced them.
 | **Overdue is legible without colour** | "3 days late" in words, red edge, sorted to the top of the column |
 | **Check-off is one tap** | ticking completes immediately with no dialog; the logbook still records it |
 | **Deleting a chore needs two taps** | first tap shows "Delete?", nothing removed; second removed exactly that item by uid |
-| **The strip does not filter on the chore board** | chips render `static`; tapping a name changed nothing and no column vanished |
+| **The strip is gone from the chore board entirely** | it used to render `static` there, duplicating the column headers as a second row of the same five names; now the board shows each person exactly once and starts 88px higher. The strip still filters and counts on the calendar |
 | **The calendar strip shows chores due today** | "2 chores" on the people who owe some, counting due-today plus overdue |
 | **A person can wear two calendars without confusing the roster** | five schedule calendars provisioned and labelled; every person kept their own calendar, and `fetchRoster` picked the schedule one separately — in both registry orders |
 | **The schedule label is machinery, not a sixth person** | `Chore schedule` wears five calendars and is excluded from the roster |
@@ -166,6 +191,12 @@ Things actually observed, with the check that produced them.
 | **A schedule calendar is created on demand** | deleted one person's, then scheduled a repeat from her column: it was recreated, labelled, and her own calendar untouched |
 | **Chore rules stay out of the calendar grid** | the week view subscribes only to people's own calendars; no rule ever rendered as an appointment |
 | **HA silently ignores automations written over the config API** | `POST /api/config/automation/config/<id>` returned `{"result":"ok"}`, `automation.reload` returned 200, and **zero** automation entities existed — `configuration.yaml` had no include |
+| **The backup captures what actually matters** | ran `dev/backup-config.sh` under busybox `sh` (the HA image is Alpine, so the strict case) against a tree holding an `.ics`, a chore list and a label registry: all three archived |
+| **...and skips what it should** | recorder DB, `-wal`/`-shm`, `www/hacalendar`, `deps`, `tts` and logs were absent from the extracted archive |
+| **The archive restores byte-identical** | extracted the newest and md5'd every file against the original — four of four matched |
+| **Retention keeps the newest N** | five runs at `BACKUP_KEEP=3` left exactly the three newest, pruning as it went |
+| **An empty `/config` fails loudly and leaves nothing behind** | 92-byte archive discarded, exit 1 — and four consecutive failures cost **zero** good backups, which is the whole point of discarding it |
+| **A missing `/backup` mount fails rather than writing into the container** | exit 1 with a message naming `docker-compose.yml` |
 
 ---
 
@@ -202,6 +233,16 @@ verified on 2026-09-03. What remains has still never been executed.
   inside one afternoon, with the calendar's own rules and a hand-run
   materializer. "Every Tuesday" arriving on a Tuesday nobody arranged is still
   a prediction.
+- **The backup has never run through Home Assistant.** The script itself is
+  well tested — under busybox, including a restore — but `shell_command`
+  finding it, and the 03:30 trigger firing, both need the deploy. Until then no
+  archive has ever been written by anything but a test container.
+- **No backup has ever been restored into a real HA.** The archive round-trips
+  by checksum, which is not the same as HA starting cleanly from it. Worth
+  doing once, deliberately, before anyone needs it.
+- **Nothing has survived a reboot.** `restart: unless-stopped` is set in
+  `docker-compose.yml` and has never been tested by actually restarting the
+  laptop.
 
 ### Testability debt — resolved
 

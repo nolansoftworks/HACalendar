@@ -17,6 +17,13 @@ services:
       # `npm run watch` writes the bundle straight into config/www/hacalendar,
       # which HA serves at /local/hacalendar/.
       - ./config:/config
+      # Nightly backups land here, OUTSIDE the volume being backed up. Point
+      # this at another disk if the server has one -- as it stands it survives
+      # a mistake or a corrupt config, not a dead drive. Relative on purpose:
+      # Compose resolves it beside this file, so it needs no host path and
+      # works the same on Windows, macOS and Linux.
+      - ./backups:/backup
+      - ./backup-config.sh:/backup-config.sh:ro
     ports:
       - "8123:8123"
     restart: unless-stopped

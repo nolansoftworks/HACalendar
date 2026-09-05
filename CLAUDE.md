@@ -241,7 +241,8 @@ src/ui/grid.ts          pure grid/date maths — no lit, unit-tested
 src/**/*.test.ts        node:test suites, run by `npm test`
 scripts/                test-only module resolver (.js specifier -> .ts)
 dev/                    HA Container config (see ADR-0023: also production)
-dev/config/automations/ the nightly chore materializer — versioned, not UI-made
+dev/config/automations/ nightly chore materializer + backup — versioned, not UI-made
+dev/backup-config.sh    tars /config from inside the container (busybox sh)
 docs/                   DECISIONS, PLAN, STATUS
 ```
 
