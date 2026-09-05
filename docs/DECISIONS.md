@@ -1128,6 +1128,81 @@ on nothing but the household wanting it.
 
 ---
 
+## ADR-0032
+
+**A list is any `todo` entity that is nobody's chore list. The definition is subtractive on purpose.**
+
+Status: **Accepted** · 2026-09-05 · sits under [ADR-0026]
+
+The lists board needed a rule for what belongs on it, and the obvious one —
+"lists this app made" — was rejected. Home Assistant ships `todo.shopping_list`
+out of the box, and a household will make lists in HA's own settings without
+telling this app. Any rule that only recognises what the app created would show
+an empty board to a house that already has three lists.
+
+So the rule is the complement of the roster's: a chore list is claimed by a
+person via their label ([ADR-0026]), and **everything else in the `todo` domain
+is a household list.** Nothing to configure, nothing to adopt, no marker label
+of our own — a list made anywhere shows up on the wall.
+
+Two things fall out of it, both deliberate:
+
+- **`fetchLists` takes the roster rather than fetching one.** The definition is
+  relative to the roster, so a lists board built before the roster loads would
+  put five people's chore lists on the wall. The shell gates the subscription
+  on `_rosterLoaded` for exactly this reason.
+- **Entities hidden or disabled in HA are skipped.** Somebody put them out of
+  sight on purpose; a subtractive rule that ignored that would drag them back.
+
+**Evidence.** A fresh HA 2026.7.2 has `todo.shopping_list` with no config
+entry of ours. The entity registry carries `hidden_by` / `disabled_by` per
+entity, and `config_entries/get` supplies a display title when an entity has
+neither `name` nor `original_name`.
+
+**Consequences.** Deleting a list means deleting its config entry, which takes
+the items with it — so `deleteList` refuses anything that is somebody's chore
+list, and that removal stays in Settings where the roster lives. A future
+"meals" surface that wants its own `todo` entity would appear on this board
+unless it is claimed by something, which is a constraint on that design, not a
+bug in this one.
+
+---
+
+## ADR-0033
+
+**A list keeps the order it was typed in, and adding is inline, not a dialog.**
+
+Status: **Accepted** · 2026-09-05 · departs from [ADR-0013] on purpose
+
+The chore board sorts by urgency: overdue first, longest-overdue at the top
+([ADR-0013]). Applying that to a shopping list would be wrong twice over.
+
+- **Order is information.** "Milk, eggs, bread" is often written in the order
+  someone will walk the aisles. Alphabetising it to "bread, eggs, milk" throws
+  that away, and there is nothing to sort by anyway — a list has no due dates.
+- **Rows must not move under a finger.** A re-sort on every push means the row
+  someone is reaching for slides away as somebody else ticks something off.
+
+So the only comparator is done-ness, `Array.prototype.sort` is stable, and a
+ticked item moves exactly once: down. Everything else stays where HA had it.
+
+Adding is inline for the same shape of reason. A chore is added once and
+thought about, which earns a dialog; a list is filled in bursts, and three
+items must be three types into a box that is already on screen, not three
+round trips through a sheet that opens, takes a name, and closes. The box
+keeps focus after each add.
+
+**Evidence.** `local_todo` returns items in list order and preserves insertion
+order across restarts; the sort is a no-op against it until something is
+ticked. Stable `sort` is ES2019 and is in the Chrome 87 floor ([ADR-0003]).
+
+**Consequences.** `list-order.ts` is a separate module from `chore-list.ts`
+rather than a flag on it, because the two orderings are answers to different
+questions and merging them would make both harder to read. No due dates and no
+logbook attribution on lists: [ADR-0014] is about who did a *chore*, and nobody
+needs a record of who ticked off the milk.
+---
+
 [ADR-0001]: #adr-0001
 [ADR-0002]: #adr-0002
 [ADR-0003]: #adr-0003
@@ -1155,3 +1230,5 @@ on nothing but the household wanting it.
 [Phase 1]: PLAN.md#phase-1--live-month-view--current
 [Phase 4]: PLAN.md#phase-4--recurring-chores
 [ADR-0031]: #adr-0031
+[ADR-0032]: #adr-0032
+[ADR-0033]: #adr-0033

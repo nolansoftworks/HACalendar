@@ -353,7 +353,7 @@ never passes a name to `update_item` or `remove_item`.
 
 ---
 
-## Phase 5 — Deployment 🔴 **← current**
+## Phase 5 — Deployment 🟡 **backup done, kiosk waiting on hardware**
 
 Server is the always-on laptop; the Pi is a kiosk client ([ADR-0023]). Much of
 this is already true — the server *is* the dev instance — so "deployment" here is
@@ -459,6 +459,50 @@ not being pursued yet.
 
 ---
 
+## Phase 7 — Lists 🔴 **← current**
+
+The last rail destination. Opened 2026-09-05 at the household's request, ahead
+of Phase 6, which stays deferred.
+
+- [x] **Find the lists without being told about them** — a list is any `todo`
+      entity that is nobody's chore list ([ADR-0032]). HA's own
+      `todo.shopping_list` and anything made in HA's settings appear with
+      nothing to configure
+- [x] One column per list, the same grammar as the chore board
+- [x] **Inline add row, not a dialog** ([ADR-0033]) — the box keeps focus, so
+      "milk, eggs, bread" is three types, not three sheets
+- [x] One tap to tick, two taps to delete a row
+- [x] **Clear ticked** — `todo.remove_completed_items`, behind a second tap,
+      because a list gets reset for the next trip rather than emptied one row
+      at a time
+- [x] Make a list from the board itself, named in the same inline gesture
+- [x] Delete a whole list, behind a second tap — and `deleteList` refuses a
+      chore list outright, since that is the roster's business ([ADR-0026])
+- [x] Order preserved, ticked items sink ([ADR-0033]), unit-tested in
+      `list-order.ts`
+
+**Exit criterion:** an item added on the wall panel appears on the list, ticks
+off in one tap, and the whole board survives a household making a new list in
+HA's own settings without touching this app.
+
+**Deliberately not here.** No due dates, no owner, no logbook attribution:
+[ADR-0014] is about who did a *chore*. Nobody needs a record of who ticked off
+the milk.
+
+---
+
+## Phase 8 — Meals
+
+Requested by the household on 2026-09-05, to follow Lists: meals against the
+days of the week, in five slots — **breakfast, lunch, afternoon snack, dinner,
+bedtime snack**. Not started; not designed. The open question is whether a slot
+is a calendar event, a `todo` item, or something of its own, and that decision
+is owed an ADR before any of it is built — note that [ADR-0032]'s subtractive
+rule means a `todo` entity created for meals would land on the Lists board
+unless something claims it.
+
+---
+
 ## Deliberately not doing
 
 - **Two-way Google Calendar sync via HA's integration.** Impossible; create-only.
@@ -502,3 +546,5 @@ not being pursued yet.
 [ADR-0029]: DECISIONS.md#adr-0029
 [ADR-0030]: DECISIONS.md#adr-0030
 [ADR-0031]: DECISIONS.md#adr-0031
+[ADR-0032]: DECISIONS.md#adr-0032
+[ADR-0033]: DECISIONS.md#adr-0033

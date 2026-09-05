@@ -367,7 +367,7 @@ export async function deletePerson(
  * scriptable over REST, which is the only reason this app can provision
  * anything without sending someone into HA's settings.
  */
-async function createEntry(
+export async function createEntry(
   client: HaClient,
   handler: string,
   answers: Record<string, unknown>,
@@ -394,7 +394,7 @@ async function createEntry(
  * The entity appears a moment after the flow completes, so this retries
  * briefly rather than assuming it is registered by the time we look.
  */
-async function findEntity(
+export async function findEntity(
   client: HaClient,
   entryId: string,
   domain: string,
@@ -414,7 +414,7 @@ async function findEntity(
   throw new Error("It was created but never appeared.");
 }
 
-async function findConfigEntryFor(
+export async function findConfigEntryFor(
   client: HaClient,
   entityId: string,
 ): Promise<string | null> {

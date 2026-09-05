@@ -1,18 +1,20 @@
 # Status
 
-**Last updated:** 2026-09-04
-**Current phase:** Phase 5 — Deployment (`docs/PLAN.md`) — backups done,
-kiosk waiting on hardware. **Phase 6 is deferred by the household**, not
-pending ([ADR-0031]).
+**Last updated:** 2026-09-05
+**Current phase:** Phase 7 — Lists (`docs/PLAN.md`) — **built and driven end to
+end against live HA**, including the browser. Phase 5's backups are done and
+its kiosk half is waiting on hardware. **Phase 6 is deferred by the
+household**, not pending ([ADR-0031]).
 **Blocked on:** people, a restart, and hardware nobody has bought yet. Phase 2
 needs a non-technical adult on the touchscreen; Phase 3 needs a child actually
 using the chore board; Phases 4 and 5 both need the server to pull and restart
 before their automations load; Phase 5's kiosk half needs a Raspberry Pi and a
 Fire tablet that do not exist yet. Nothing is blocked on a protocol question.
 
-**There is no phase left to build right now.** Every remaining item is waiting
-on a person, a reboot, or hardware. The one piece of unblocked *code* work is
-the **Lists** rail destination, which has no phase of its own — see below.
+**Next to build: Phase 8 — Meals.** Requested by the household on 2026-09-05:
+meals against the days of the week in five slots (breakfast, lunch, afternoon
+snack, dinner, bedtime snack). Not designed. It owes an ADR before any code —
+see the note in `PLAN.md` about [ADR-0032] and stray `todo` entities.
 
 Keep this file honest. The single most useful thing it does is separate what
 has been **observed** from what has only been **built**. A passing typecheck is
@@ -98,11 +100,15 @@ and no Fire OS tablet in the house yet (confirmed 2026-09-04). Kiosk autostart
 and screen-blanking config written against a guessed OS image would look
 finished and boot into nothing, so none of it exists.
 
-**Lists** is the one rail item still disabled, and now the only unblocked piece
-of code work in the repo. It has no phase of its own yet; the obvious shape is
-"every `todo.*` entity that isn't somebody's chore list", which would make the
-shopping list HA already ships appear for free. The live instance already has a
-`todo.shopping_list` sitting unlabelled and unused.
+**Lists is built and driven end to end.** All three rail destinations are now
+live. A list is any `todo` entity that is nobody's chore list ([ADR-0032]), so
+HA's own `todo.shopping_list` appears with nothing configured — confirmed on a
+fresh instance, where it showed up on the board without this app creating
+anything. Adding is an inline row that keeps focus rather than a dialog
+([ADR-0033]), items hold the order they were typed in, ticking sinks a row,
+*Clear ticked* and *Delete list* both take two taps, and a list can be made and
+destroyed from the board itself. It needs the same deploy everything else does:
+`git pull && npm install && npm run build` on the server.
 
 **Cloud sync is deferred, not pending.** Asked on 2026-09-04, the household
 said it is all local events for now and cloud comes later ([ADR-0031]). Phase 6
@@ -181,7 +187,7 @@ Things actually observed, with the check that produced them.
 | **Todo items are addressable by uid** | completing one of two identically-named items changed only that one |
 | **Addressing a todo by name silently no-ops** | with a duplicate present, `update_item` by name returned success and changed nothing |
 | **`local_todo` config flow is scriptable** | five chore lists provisioned and labelled without touching the HA UI |
-| **The rail navigates** | Chores switches section; Lists stays disabled and says so |
+| **The rail navigates** | Chores switches section; Lists did too once it was built (2026-09-05) |
 | **Check-off writes through with attribution** | picked a sibling; chore completed on its owner's list and the logbook recorded `paxtyn — completed Take out trash` |
 | **Overdue is legible without colour** | "3 days late" in words, red edge, sorted to the top of the column |
 | **Check-off is one tap** | ticking completes immediately with no dialog; the logbook still records it |
@@ -213,6 +219,16 @@ Things actually observed, with the check that produced them.
 | **...and HA's next write destroys the external one, silently** | one `calendar/event/create` later, the appended event was gone from disk. No error, no log line. This is [ADR-0010]'s whole plan failing |
 | **Reloading the config entry picks the file up** | `POST /api/config/config_entries/entry/<id>/reload` — all three events visible afterwards |
 | **UIDs survive a round trip through the file** | both HA's own uids and an externally-authored `UID:from-iphone-0001` came back intact after the reload — [ADR-0009] paying off, as [ADR-0016] predicted it would be the only thing Phase 6 needed |
+| *(every Lists row below was driven on 2026-09-05 against a **fresh local** HA in Docker — the household's `192.168.1.197` instance was offline that day. Same image and `configuration.yaml`, empty state, timezone forced to `America/Chicago`)* | — |
+| **A list HA made itself appears with nothing configured** | onboarded a *fresh* HA, created one person, and `todo.shopping_list` — which this app never touched — was on the Lists board. [ADR-0032]'s subtractive rule, checked the only way that proves it |
+| **A person's chore list is never on the Lists board** | `todo.alex_chores` excluded while `todo.shopping` was included, same registry, same call |
+| **`todo` items keep insertion order, so the sort is honest** | Milk, Eggs, Bread came back in that order from live HA; ticking Eggs did not reorder the others ([ADR-0033]) |
+| **The Lists rail item is live** | `aria-disabled="false"`, no "not built yet" title, and tapping it renders the board — all three destinations now work |
+| **Adding is inline and keeps focus** | typed `Milk` with real key events, pressed Enter: the row appeared, the box emptied, and `activeElement` was still the box. No dialog opened |
+| **One tap ticks a row, and it sinks** | tapping *Eggs* completed it and moved it below Milk and Bread; the header changed to "2 left" |
+| **Clear ticked asks, then sweeps only the ticked** | first tap said "Remove 1 ticked thing?"; second left `Milk, Bread` |
+| **A list can be made and destroyed from the board** | typed "Packing" into the new-list box → a Packing column appeared; two taps on its × removed it from the board and from HA |
+| **The chore board and calendar are unharmed by the new section** | after using Lists, Calendar restored the week grid, person strip and **+**; Chores showed one column per person with no strip and no **+** |
 
 ---
 
@@ -328,7 +344,7 @@ does not always inherit the container's `TZ`; they must agree.
 
 ## Decision log health
 
-`docs/DECISIONS.md` holds 31 ADRs. **[ADR-0006] is superseded by [ADR-0023]**
+`docs/DECISIONS.md` holds 33 ADRs. **[ADR-0006] is superseded by [ADR-0023]**
 (server moved from a headless Pi to the always-on laptop; the Pi is now a kiosk
 client). The ones most likely to be wrongly "corrected" by a future agent,
 because they contradict HA's own documentation or look like over-engineering:
@@ -378,3 +394,5 @@ because they contradict HA's own documentation or look like over-engineering:
 [ADR-0030]: DECISIONS.md#adr-0030
 [ADR-0010]: DECISIONS.md#adr-0010
 [ADR-0031]: DECISIONS.md#adr-0031
+[ADR-0032]: DECISIONS.md#adr-0032
+[ADR-0033]: DECISIONS.md#adr-0033

@@ -1,6 +1,11 @@
 import type { HaClient } from "./client.js";
 import type { Roster } from "../people.js";
-import { TODO_DOMAIN } from "./roster.js";
+import {
+  TODO_DOMAIN,
+  createEntry,
+  findConfigEntryFor,
+  findEntity,
+} from "./roster.js";
 
 /**
  * Household lists: the shopping list, the packing list, whatever else.
@@ -95,34 +100,42 @@ export async function createList(
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Give the list a name.");
 
-  const started = await client.callApi<{ flow_id: string }>(
-    "POST",
-    "config/config_entries/flow",
-    { handler: "local_todo", show_advanced_options: false },
-  );
-  const finished = await client.callApi<{
-    type: string;
-    result?: { entry_id: string };
-  }>("POST", `config/config_entries/flow/${started.flow_id}`, {
+  const entryId = await createEntry(client, "local_todo", {
     todo_list_name: trimmed,
   });
-  if (finished.type !== "create_entry" || !finished.result) {
-    throw new Error("Home Assistant would not create that list.");
+  try {
+    return await findEntity(client, entryId, TODO_DOMAIN);
+  } catch (err) {
+    // Half-made is worse than not made: roll the entry back rather than
+    // leaving an invisible list behind.
+    await client
+      .callApi("DELETE", `config/config_entries/entry/${entryId}`)
+      .catch(() => undefined);
+    throw err;
   }
+}
 
-  const entryId = finished.result.entry_id;
-  // The entity appears a moment after the flow completes.
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const entities = await client.callWS<EntityEntry[]>({
-      type: "config/entity_registry/list",
-    });
-    const match = entities.filter(
-      (entity) =>
-        entity.config_entry_id === entryId &&
-        entity.entity_id.indexOf(TODO_DOMAIN) === 0,
-    )[0];
-    if (match) return match.entity_id;
-    await new Promise((resolve) => setTimeout(resolve, 250));
+/**
+ * Delete a list and everything on it.
+ *
+ * Removing the config entry is the only real delete `local_todo` has, and it
+ * takes the items with it. Refuses a chore list outright: those belong to a
+ * person ([ADR-0026]) and deleting one from here would silently strip somebody
+ * of their chores, which is the roster's business and Settings' screen.
+ */
+export async function deleteList(
+  client: HaClient,
+  entityId: string,
+  roster: Roster,
+): Promise<void> {
+  for (const person of roster.people) {
+    if (person.choreList === entityId) {
+      throw new Error(`That is ${person.name}'s chore list. Remove it in Settings.`);
+    }
   }
-  throw new Error("It was created but never appeared.");
+  const entryId = await findConfigEntryFor(client, entityId);
+  if (!entryId) {
+    throw new Error("Home Assistant will not let that list be removed.");
+  }
+  await client.callApi("DELETE", `config/config_entries/entry/${entryId}`);
 }

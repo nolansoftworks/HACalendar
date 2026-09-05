@@ -17,12 +17,19 @@ import {
 } from "../ha/roster.js";
 import {
   addChore,
+  clearCompleted,
   logCompletion,
   removeChore,
   setChoreStatus,
   subscribeChores,
   type ChoreItem,
 } from "../ha/chores.js";
+import {
+  createList,
+  deleteList,
+  fetchLists,
+  type HouseholdList,
+} from "../ha/lists.js";
 import {
   addDays,
   readableTextOn,
@@ -40,6 +47,7 @@ import { buildRrule, choreRules, type ChoreRule } from "./repeat-rule.js";
 import "./week-view.js";
 import "./month-view.js";
 import "./chores-view.js";
+import "./lists-view.js";
 import "./chore-dialog.js";
 import "./event-dialog.js";
 import "./people-settings.js";
@@ -67,7 +75,7 @@ const RULE_WINDOW_DAYS = 40;
 
 export type CalendarView = "week" | "month";
 /** Which rail destination is showing. */
-export type Section = "calendar" | "chores";
+export type Section = "calendar" | "chores" | "lists";
 
 interface CalendarTarget {
   entityId: string;
@@ -102,6 +110,10 @@ export class AppShell extends LitElement {
     _view: { state: true },
     _chores: { state: true },
     _rules: { state: true },
+    _lists: { state: true },
+    _listItems: { state: true },
+    _listBusy: { state: true },
+    _creatingList: { state: true },
     _choreBusy: { state: true },
     _choreAddFor: { state: true },
     _choreError: { state: true },
@@ -131,6 +143,13 @@ export class AppShell extends LitElement {
   _chores: Map<string, ChoreItem[]> = new Map();
   /** chore schedule calendar -> one row per rule, collapsed from its instances. */
   _rules: Map<string, ChoreRule[]> = new Map();
+  /** Every household list: any todo entity that is nobody's chore list. */
+  _lists: HouseholdList[] = [];
+  /** list entity id -> its items, as HA last pushed them. */
+  _listItems: Map<string, ChoreItem[]> = new Map();
+  /** List item uids with a write in flight. Kept apart from `_choreBusy`. */
+  _listBusy: string[] = [];
+  _creatingList = false;
   /** Item uids with a write in flight, so a double tap cannot double-fire. */
   _choreBusy: string[] = [];
   /** Whose list the add-a-chore dialog is for, or null when it is closed. */
@@ -157,8 +176,10 @@ export class AppShell extends LitElement {
 
   #unsubscribes: Map<string, () => Promise<void>> = new Map();
   #choreUnsubscribes: Map<string, () => Promise<void>> = new Map();
+  #listUnsubscribes: Map<string, () => Promise<void>> = new Map();
   #subscriptionToken = 0;
   #choreToken = 0;
+  #listToken = 0;
   #clock?: ReturnType<typeof setInterval>;
 
   override connectedCallback(): void {
@@ -174,6 +195,7 @@ export class AppShell extends LitElement {
     if (this.#clock) clearInterval(this.#clock);
     void this.#teardown();
     void this.#teardownChores();
+    void this.#teardownLists();
   }
 
   override updated(changed: PropertyValues<this>): void {
@@ -191,6 +213,17 @@ export class AppShell extends LitElement {
     }
     if (changed.has("client") || changed.has("_roster")) {
       void this.#resubscribeChores();
+    }
+    // Which todo entities are *lists* is defined by which ones are not chore
+    // lists, so a roster change can change the answer -- and `_rosterLoaded` is
+    // in here because a roster that fails to load never changes value, and the
+    // lists board must still appear.
+    if (
+      changed.has("client") ||
+      changed.has("_roster") ||
+      changed.has("_rosterLoaded")
+    ) {
+      void this.#resubscribeLists();
     }
   }
 
@@ -385,6 +418,65 @@ export class AppShell extends LitElement {
         this.#choreUnsubscribes.set(scheduleId, unsubscribe);
       } catch {
         // Same rule as the list: one bad entity must not blank the board.
+      }
+    }
+  }
+
+  async #teardownLists(): Promise<void> {
+    const unsubscribes = [...this.#listUnsubscribes.values()];
+    this.#listUnsubscribes = new Map();
+    for (const unsubscribe of unsubscribes) {
+      try {
+        await unsubscribe();
+      } catch {
+        // Connection may already be gone.
+      }
+    }
+  }
+
+  /**
+   * Find the household lists and stream each one.
+   *
+   * The roster has to have loaded first, because a list is defined by *not*
+   * being somebody's chore list — running this against an empty roster would
+   * drag five chore lists onto the lists board. `_rosterLoaded` is the guard.
+   */
+  async #resubscribeLists(): Promise<void> {
+    if (!this.client || !this._rosterLoaded) return;
+    const token = ++this.#listToken;
+    await this.#teardownLists();
+    this._listItems = new Map();
+
+    let lists: HouseholdList[];
+    try {
+      lists = await fetchLists(this.client, this._roster);
+    } catch {
+      // No lists board is better than a broken calendar; the rest of the app
+      // does not depend on this.
+      return;
+    }
+    if (token !== this.#listToken) return;
+    this._lists = lists;
+
+    for (const list of lists) {
+      try {
+        const unsubscribe = await subscribeChores(
+          this.client,
+          list.entityId,
+          (items) => {
+            if (token !== this.#listToken) return;
+            const next = new Map(this._listItems);
+            next.set(list.entityId, items);
+            this._listItems = next;
+          },
+        );
+        if (token !== this.#listToken) {
+          await unsubscribe();
+          return;
+        }
+        this.#listUnsubscribes.set(list.entityId, unsubscribe);
+      } catch {
+        // One unreadable list must not blank the board.
       }
     }
   }
@@ -755,6 +847,82 @@ export class AppShell extends LitElement {
     }
   }
 
+  // --- lists ----------------------------------------------------------------
+
+  /**
+   * List writes are the same `todo` calls the chore board makes, minus the
+   * attribution: no `logCompletion` here, because [ADR-0014] is about who did
+   * a *chore*, and nobody needs a record of who ticked off the milk.
+   */
+  async #onToggleListItem(
+    list: HouseholdList,
+    item: ChoreItem,
+  ): Promise<void> {
+    const next = item.status === "completed" ? "needs_action" : "completed";
+    this._listBusy = [...this._listBusy, item.uid];
+    try {
+      // By uid, never by name ([ADR-0029]).
+      await setChoreStatus(this.client, list.entityId, item.uid, next);
+    } catch (err) {
+      this._error = errorMessage(err);
+    } finally {
+      this._listBusy = this._listBusy.filter((uid) => uid !== item.uid);
+    }
+  }
+
+  async #onAddListItem(list: HouseholdList, summary: string): Promise<void> {
+    try {
+      // No due date: a list is not a chore, and dating "bread" is noise.
+      await addChore(this.client, list.entityId, summary);
+    } catch (err) {
+      this._error = errorMessage(err);
+    }
+  }
+
+  async #onDeleteListItem(
+    list: HouseholdList,
+    item: ChoreItem,
+  ): Promise<void> {
+    this._listBusy = [...this._listBusy, item.uid];
+    try {
+      await removeChore(this.client, list.entityId, item.uid);
+    } catch (err) {
+      this._error = errorMessage(err);
+    } finally {
+      this._listBusy = this._listBusy.filter((uid) => uid !== item.uid);
+    }
+  }
+
+  async #onClearDone(list: HouseholdList): Promise<void> {
+    try {
+      await clearCompleted(this.client, list.entityId);
+    } catch (err) {
+      this._error = errorMessage(err);
+    }
+  }
+
+  async #onCreateList(name: string): Promise<void> {
+    if (this._creatingList) return;
+    this._creatingList = true;
+    try {
+      await createList(this.client, name);
+      await this.#resubscribeLists();
+    } catch (err) {
+      this._error = errorMessage(err);
+    } finally {
+      this._creatingList = false;
+    }
+  }
+
+  async #onDeleteList(list: HouseholdList): Promise<void> {
+    try {
+      await deleteList(this.client, list.entityId, this._roster);
+      await this.#resubscribeLists();
+    } catch (err) {
+      this._error = errorMessage(err);
+    }
+  }
+
   #closeChoreDialog(): void {
     this._choreAddFor = null;
     this._choreError = null;
@@ -928,7 +1096,34 @@ export class AppShell extends LitElement {
         ${this._section === "calendar" ? this.#personStrip(targets) : nothing}
 
         <div class="view">
-          ${this._section === "chores"
+          ${this._section === "lists"
+            ? html`
+                <hacal-lists-view
+                  .lists=${this._lists}
+                  .itemsByList=${this._listItems}
+                  .busyUids=${this._listBusy}
+                  .creating=${this._creatingList}
+                  @toggle-item=${(
+                    e: CustomEvent<{ list: HouseholdList; item: ChoreItem }>,
+                  ) =>
+                    void this.#onToggleListItem(e.detail.list, e.detail.item)}
+                  @add-item=${(
+                    e: CustomEvent<{ list: HouseholdList; summary: string }>,
+                  ) =>
+                    void this.#onAddListItem(e.detail.list, e.detail.summary)}
+                  @delete-item=${(
+                    e: CustomEvent<{ list: HouseholdList; item: ChoreItem }>,
+                  ) =>
+                    void this.#onDeleteListItem(e.detail.list, e.detail.item)}
+                  @clear-done=${(e: CustomEvent<{ list: HouseholdList }>) =>
+                    void this.#onClearDone(e.detail.list)}
+                  @delete-list=${(e: CustomEvent<{ list: HouseholdList }>) =>
+                    void this.#onDeleteList(e.detail.list)}
+                  @create-list=${(e: CustomEvent<{ name: string }>) =>
+                    void this.#onCreateList(e.detail.name)}
+                ></hacal-lists-view>
+              `
+            : this._section === "chores"
             ? html`
                 <hacal-chores-view
                   .people=${this._roster.people}
@@ -1041,7 +1236,11 @@ export class AppShell extends LitElement {
 
   #railButton(id: string) {
     const label = RAIL_LABELS[id] ?? id;
-    const section = id === "calendar" || id === "chores" ? (id as Section) : null;
+    // A rail item with no section behind it renders greyed and inert rather
+    // than disappearing, so the shape of the app stays legible while a
+    // destination is still being built.
+    const section =
+      SECTIONS.indexOf(id as Section) === -1 ? null : (id as Section);
     const active = section !== null && this._section === section;
 
     return html`
@@ -1304,6 +1503,9 @@ export class AppShell extends LitElement {
     }
   `;
 }
+
+/** Every rail id that is actually a destination. */
+const SECTIONS: Section[] = ["calendar", "chores", "lists"];
 
 const RAIL_GLYPHS: Record<string, string> = {
   calendar: "🗓",

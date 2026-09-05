@@ -181,6 +181,25 @@ a nice-to-have.**
     events until they ask. Do not start it because it looks like the next
     phase.
 
+20. **Every `todo` entity is one of exactly two things, and nothing marks the
+    second.** A `todo` entity labelled with a person is their chore list
+    ([ADR-0026]); *anything else* in the domain is a household list and shows
+    up on the Lists board ([ADR-0032]). There is no marker label for lists and
+    there must not be one — that is what makes HA's own `todo.shopping_list`
+    appear for free. The trap is that **anything else that creates a `todo`
+    entity lands on the Lists board too**, so a future surface (meals, say)
+    that wants one needs its own claim, decided before it is built.
+
+21. **`fetchLists` needs a loaded roster or it will show five chore lists.**
+    The definition is subtractive, so running it against an empty roster
+    subtracts nothing. `app-shell` gates the subscription on `_rosterLoaded`
+    and re-runs it whenever the roster changes; keep that gate.
+
+22. **Lists do not sort. Chores do.** `chore-list.ts` orders by urgency
+    ([ADR-0013]); `list-order.ts` preserves insertion order and only sinks
+    ticked rows ([ADR-0033]). They are separate modules on purpose — do not
+    "unify" them, and do not add an alphabetical sort to a shopping list.
+
 [ADR-0008]: docs/DECISIONS.md#adr-0008
 [ADR-0010]: docs/DECISIONS.md#adr-0010
 [ADR-0031]: docs/DECISIONS.md#adr-0031
@@ -193,6 +212,8 @@ a nice-to-have.**
 [ADR-0028]: docs/DECISIONS.md#adr-0028
 [ADR-0029]: docs/DECISIONS.md#adr-0029
 [ADR-0030]: docs/DECISIONS.md#adr-0030
+[ADR-0032]: docs/DECISIONS.md#adr-0032
+[ADR-0033]: docs/DECISIONS.md#adr-0033
 
 ## Environment bug on this machine
 
@@ -243,12 +264,15 @@ src/ha/calendar.ts      typed CRUD over calendar/event/*
 src/people.ts           roster vocabulary: Person, Roster, palette
 src/ha/roster.ts        roster read/write via HA's label registry (ADR-0026)
 src/ha/chores.ts        todo lists — ALWAYS address items by uid (ADR-0029)
+src/ha/lists.ts         household lists = todo entities nobody's chores (ADR-0032)
 src/ui/app-shell.ts     the appliance shell: rail, header, views (ADR-0027)
 src/ui/week-view.ts     rolling day-column time grid — the default view
 src/ui/week-layout.ts   time-grid geometry — no lit, unit-tested
 src/ui/month-view.ts    the month grid — secondary view, presentational
 src/ui/chores-view.ts   the chore board, one column per person
 src/ui/chore-list.ts    chore ordering + overdue — no lit, unit-tested
+src/ui/lists-view.ts    the lists board, inline add row (ADR-0033)
+src/ui/list-order.ts    list ordering — insertion order kept, no lit, tested
 src/ui/repeat-rule.ts   RRULE <-> English, one row per rule — no lit, tested
 src/ui/chore-dialog.ts  add-a-chore, including "does it happen again?"
 src/ui/event-dialog.ts  touch-first create/edit/delete sheet

@@ -99,6 +99,25 @@ export function removeChore(
 }
 
 /**
+ * Sweep every ticked item off a list in one call.
+ *
+ * The one operation that is *not* addressed by uid, because HA does the
+ * selecting: it removes exactly the completed items and leaves the rest. It is
+ * how a shopping list gets reset for the next trip, and how the nightly chore
+ * automation clears yesterday before it materializes today.
+ *
+ * Irreversible -- the items are gone, not un-ticked -- so callers ask twice.
+ */
+export function clearCompleted(
+  client: HaClient,
+  entityId: string,
+): Promise<unknown> {
+  return client.callService("todo", "remove_completed_items", {
+    entity_id: entityId,
+  });
+}
+
+/**
  * Record *who* completed a chore ([ADR-0014]).
  *
  * The chore lives on its owner's list; this says who actually did it, which is
