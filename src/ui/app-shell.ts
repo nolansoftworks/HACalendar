@@ -20,6 +20,7 @@ import {
 } from "./grid.js";
 import { dayColumns } from "./week-layout.js";
 import { personStats } from "./person-stats.js";
+import { viewLabel } from "./range-label.js";
 import { toEventInput } from "./event-form.js";
 import "./week-view.js";
 import "./month-view.js";
@@ -496,10 +497,18 @@ export class AppShell extends LitElement {
           <button id="prev" aria-label="Previous" @click=${() => this.#shift(-1)}>
             &lsaquo;
           </button>
-          <button id="today" @click=${this.#goToday}>Today</button>
+          <span class="range" id="range-label" aria-live="polite"
+            >${viewLabel(
+              this._view,
+              this._cursor,
+              this._roster.weekStartsOn,
+              DAYS_IN_WEEK,
+            )}</span
+          >
           <button id="next" aria-label="Next" @click=${() => this.#shift(1)}>
             &rsaquo;
           </button>
+          <button id="today" @click=${this.#goToday}>Today</button>
           <span class="switch">
             <button
               id="view-week"
@@ -750,6 +759,13 @@ export class AppShell extends LitElement {
     .grow {
       flex: 1;
     }
+    .range {
+      min-width: 15rem;
+      font-size: 1.05rem;
+      font-weight: 600;
+      text-align: center;
+      white-space: nowrap;
+    }
     header button {
       min-width: 44px;
       min-height: 44px;
@@ -788,7 +804,8 @@ export class AppShell extends LitElement {
       display: flex;
       align-items: center;
       gap: 9px;
-      min-width: 9.5rem;
+      flex: 1 1 8rem;
+      min-width: 0;
       min-height: 52px;
       padding: 6px 14px 6px 6px;
       background: #f5f6f8;
