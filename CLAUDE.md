@@ -30,6 +30,7 @@ a nice-to-have.**
 | The roster is HA labels, never a file in this repo | forkable by anyone, [ADR-0026](docs/DECISIONS.md#adr-0026) |
 | The "who?" picker is intent, never auth | [ADR-0018](docs/DECISIONS.md#adr-0018) |
 | The app owns the screen; HA is a destination | appliance, not a dashboard, [ADR-0027](docs/DECISIONS.md#adr-0027) |
+| No calendar is hardcoded — the roster is the only source | [ADR-0028](docs/DECISIONS.md#adr-0028) |
 
 ## Gotchas that have already bitten us
 
@@ -130,6 +131,7 @@ a nice-to-have.**
 [ADR-0022]: docs/DECISIONS.md#adr-0022
 [ADR-0026]: docs/DECISIONS.md#adr-0026
 [ADR-0027]: docs/DECISIONS.md#adr-0027
+[ADR-0028]: docs/DECISIONS.md#adr-0028
 
 ## Environment bug on this machine
 

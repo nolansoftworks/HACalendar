@@ -107,6 +107,10 @@ Things actually observed, with the check that produced them.
 | **Tapping an hour slot creates a timed event there** | tapping the 2pm slot prefilled `14:00`–`15:00`, not all-day |
 | **Grid auto-scrolls toward now** | `scrollTop: 313` of 913 on mount, rather than opening at 7am |
 | **The hour window keeps the current hour visible** | at 21:23 the window stretched to 22:00 and the now-line drew |
+| **No calendar is hardcoded** | with `calendar.family` unlabelled it vanishes from the app entirely; only roster entries render |
+| **Week view is a real Sunday–Saturday week** | columns `Sun 30 … Sat 5`; Next advanced to `Sun 6 … Sat 12`; Today returned to the current week |
+| **Per-person counts in the header** | `1/1` past/total with a filled bar, and a `1 today` badge on the three people with events today |
+| **Counts ignore the filter toggles** | hiding a person leaves their numbers intact, so the strip still explains itself |
 
 ---
 

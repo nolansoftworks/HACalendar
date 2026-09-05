@@ -41,6 +41,23 @@ export function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
+/** Midnight local time on the same day. Never `new Date(string)` — that is UTC. */
+export function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+/**
+ * The first day of the calendar week containing `date`.
+ *
+ * The week view shows a real Sunday-to-Saturday week rather than a rolling
+ * window, so "this week" means the same thing to everyone in the house.
+ */
+export function startOfWeek(date: Date, weekStartsOn = 0): Date {
+  const offset = ((Math.trunc(weekStartsOn) % 7) + 7) % 7;
+  const lead = (date.getDay() - offset + 7) % 7;
+  return addDays(startOfDay(date), -lead);
+}
+
 export function addDays(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 }

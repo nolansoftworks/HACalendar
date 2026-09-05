@@ -14,24 +14,22 @@ import {
   addDays,
   readableTextOn,
   startOfMonth,
+  startOfWeek,
   visibleRange,
   type OwnedEvent,
 } from "./grid.js";
 import { dayColumns } from "./week-layout.js";
+import { personStats } from "./person-stats.js";
 import { toEventInput } from "./event-form.js";
 import "./week-view.js";
 import "./month-view.js";
 import "./event-dialog.js";
 import "./people-settings.js";
 import type { DialogSaveDetail, EditScope } from "./event-dialog.js";
-import {
-  DEFAULT_ROSTER,
-  FAMILY_COLOR,
-  FAMILY_LABEL,
-  FAMILY_OWNER_ID,
-  ROSTER_SETUP_HINT,
-  type Roster,
-} from "../people.js";
+import { DEFAULT_ROSTER, ROSTER_SETUP_HINT, type Roster } from "../people.js";
+
+/** Days in the week view. A real Sunday-to-Saturday week, not a rolling window. */
+const DAYS_IN_WEEK = 7;
 
 export type CalendarView = "week" | "month";
 
@@ -55,13 +53,15 @@ interface CalendarTarget {
  * edit dialog -- so the views stay presentational and cannot double-subscribe.
  * Writes are optimistic; HA pushes a fresh list on every change (twice for a
  * create), so the authoritative state lands on its own and a failure rolls back.
+ *
+ * **There is no built-in shared calendar.** Every calendar shown comes from the
+ * roster ([ADR-0028]). A household that wants a shared "Family" calendar adds
+ * it in Settings like any other entry, which keeps this app free of any
+ * assumption about what a particular household's entities are called.
  */
 export class AppShell extends LitElement {
   static override properties = {
     client: { attribute: false },
-    entityId: { attribute: false },
-    haUrl: { attribute: false },
-    daysShown: { type: Number },
     _view: { state: true },
     _cursor: { state: true },
     _byCalendar: { state: true },
@@ -82,11 +82,6 @@ export class AppShell extends LitElement {
   };
 
   client!: HaClient;
-  /** The shared household calendar. Per-person ones come from the roster. */
-  entityId = "calendar.family";
-  /** Base URL for the "Home Assistant" rail button. Empty = same origin. */
-  haUrl = "";
-  daysShown = 5;
 
   _view: CalendarView = "week";
   /** In week view this is the first visible day; in month view, any day in it. */
@@ -133,10 +128,8 @@ export class AppShell extends LitElement {
     }
     if (
       changed.has("client") ||
-      changed.has("entityId") ||
       changed.has("_cursor") ||
       changed.has("_view") ||
-      changed.has("daysShown") ||
       changed.has("_roster")
     ) {
       void this.#resubscribe();
@@ -166,15 +159,9 @@ export class AppShell extends LitElement {
     }
   }
 
+  /** One target per roster entry. Nothing is assumed or added on their behalf. */
   #targets(): CalendarTarget[] {
-    const targets: CalendarTarget[] = [
-      {
-        entityId: this.entityId,
-        ownerId: FAMILY_OWNER_ID,
-        label: FAMILY_LABEL,
-        color: FAMILY_COLOR,
-      },
-    ];
+    const targets: CalendarTarget[] = [];
     for (const person of this._roster.people) {
       if (!person.calendar) continue;
       targets.push({
@@ -187,9 +174,8 @@ export class AppShell extends LitElement {
     return targets;
   }
 
-  #targetForOwner(ownerId: string): CalendarTarget {
-    const match = this.#targets().filter((t) => t.ownerId === ownerId)[0];
-    return match ?? this.#targets()[0]!;
+  #targetForOwner(ownerId: string): CalendarTarget | null {
+    return this.#targets().filter((t) => t.ownerId === ownerId)[0] ?? null;
   }
 
   /** The span to subscribe over, which differs per view. */
@@ -197,7 +183,16 @@ export class AppShell extends LitElement {
     if (this._view === "month") {
       return visibleRange(startOfMonth(this._cursor), this._roster.weekStartsOn);
     }
-    return { start: this._cursor, end: addDays(this._cursor, this.daysShown) };
+    const start = startOfWeek(this._cursor, this._roster.weekStartsOn);
+    return { start, end: addDays(start, DAYS_IN_WEEK) };
+  }
+
+  /** The seven days the week view shows. */
+  #weekDays(): Date[] {
+    return dayColumns(
+      startOfWeek(this._cursor, this._roster.weekStartsOn),
+      DAYS_IN_WEEK,
+    );
   }
 
   async #teardown(): Promise<void> {
@@ -264,6 +259,15 @@ export class AppShell extends LitElement {
     return merged;
   }
 
+  /** Everything subscribed, filters ignored -- the strip's counts use this. */
+  #allEvents(): OwnedEvent[] {
+    const merged: OwnedEvent[] = [];
+    this._byCalendar.forEach((events) => {
+      for (const event of events) merged.push(event);
+    });
+    return merged;
+  }
+
   #shift(direction: number): void {
     this._cursor =
       this._view === "month"
@@ -272,18 +276,24 @@ export class AppShell extends LitElement {
             this._cursor.getMonth() + direction,
             1,
           )
-        : addDays(this._cursor, direction * this.daysShown);
+        : addDays(this._cursor, direction * DAYS_IN_WEEK);
   }
 
   #goToday(): void {
-    this._cursor = this._view === "month" ? startOfMonth(today()) : today();
+    this._cursor =
+      this._view === "month"
+        ? startOfMonth(today())
+        : startOfWeek(today(), this._roster.weekStartsOn);
   }
 
   #setView(view: CalendarView): void {
     if (view === this._view) return;
     this._view = view;
-    // Re-anchor: a month cursor must be the 1st, a week cursor a real day.
-    this._cursor = view === "month" ? startOfMonth(this._cursor) : today();
+    // Re-anchor: a month cursor must be the 1st, a week cursor the week start.
+    this._cursor =
+      view === "month"
+        ? startOfMonth(this._cursor)
+        : startOfWeek(this._cursor, this._roster.weekStartsOn);
   }
 
   #toggleOwner(ownerId: string): void {
@@ -296,6 +306,12 @@ export class AppShell extends LitElement {
   // --- dialog -------------------------------------------------------------
 
   #openCreate(day: Date, hour: number | null = null): void {
+    // With nobody in the roster there is no calendar to write to, so send them
+    // where they can fix that instead of opening a form that cannot save.
+    if (this._roster.people.length === 0) {
+      this._settingsOpen = true;
+      return;
+    }
     this._dialogEvent = null;
     this._dialogDay = day;
     this._dialogHour = hour;
@@ -336,6 +352,7 @@ export class AppShell extends LitElement {
     try {
       if (this._dialogMode === "create") {
         const target = this.#targetForOwner(detail.ownerId);
+        if (!target) throw new Error("Pick who this is for.");
         const input = toEventInput(detail.values);
         this.#optimisticAdd(target, input);
         await createEvent(this.client, target.entityId, input);
@@ -346,6 +363,7 @@ export class AppShell extends LitElement {
           throw new Error("This event has no id, so it cannot be changed.");
         }
         const target = this.#targetForOwner(event.ownerId);
+        if (!target) throw new Error("That calendar is no longer available.");
         const input = toEventInput(detail.values, event.rrule);
         this.#optimisticReplace(target, event, input);
         await updateEvent(
@@ -376,6 +394,7 @@ export class AppShell extends LitElement {
     this._dialogError = null;
     try {
       const target = this.#targetForOwner(event.ownerId);
+      if (!target) throw new Error("That calendar is no longer available.");
       this.#optimisticRemove(target, event);
       await deleteEvent(
         this.client,
@@ -458,9 +477,6 @@ export class AppShell extends LitElement {
         ${this.#railButton("chores", "Chores", false)}
         ${this.#railButton("lists", "Lists", false)}
         <span class="rail-spacer"></span>
-        <a class="rail-item" href="${this.haUrl}/lovelace" id="open-ha">
-          <span class="glyph">⌂</span><span class="label">Home</span>
-        </a>
         <button
           class="rail-item"
           id="open-settings"
@@ -519,10 +535,21 @@ export class AppShell extends LitElement {
         <div class="people">
           ${targets.map((target) => {
             const off = this._hidden.indexOf(target.ownerId) !== -1;
+            // Stats ignore the filter: hiding someone must not zero their
+            // counts, or the strip would stop telling you why you hid them.
+            const stats = personStats(
+              this.#allEvents(),
+              target.ownerId,
+              this._now,
+            );
+            const done = stats.total
+              ? Math.round((stats.past / stats.total) * 100)
+              : 0;
             return html`
               <button
                 class="person ${off ? "off" : ""}"
                 aria-pressed=${off ? "false" : "true"}
+                title="${target.label}: ${stats.past} of ${stats.total} done, ${stats.today} today"
                 @click=${() => this.#toggleOwner(target.ownerId)}
               >
                 <span
@@ -532,7 +559,21 @@ export class AppShell extends LitElement {
                   )}"
                   >${target.label.slice(0, 1).toUpperCase()}</span
                 >
-                <span class="name">${target.label}</span>
+                <span class="who">
+                  <span class="name">${target.label}</span>
+                  <span class="counts">
+                    <b>${stats.past}</b>/${stats.total}
+                    ${stats.today
+                      ? html`<span class="badge">${stats.today} today</span>`
+                      : nothing}
+                  </span>
+                  <span class="bar">
+                    <span
+                      class="fill"
+                      style="width:${done}%;background:${target.color}"
+                    ></span>
+                  </span>
+                </span>
               </button>
             `;
           })}
@@ -542,7 +583,7 @@ export class AppShell extends LitElement {
           ${this._view === "week"
             ? html`
                 <hacal-week-view
-                  .days=${dayColumns(this._cursor, this.daysShown)}
+                  .days=${this.#weekDays()}
                   .events=${events}
                   .initials=${initials}
                   .now=${this._now}
@@ -746,16 +787,16 @@ export class AppShell extends LitElement {
     .person {
       display: flex;
       align-items: center;
-      gap: 7px;
-      min-height: 40px;
-      padding: 0 12px 0 4px;
+      gap: 9px;
+      min-width: 9.5rem;
+      min-height: 52px;
+      padding: 6px 14px 6px 6px;
       background: #f5f6f8;
       border: 2px solid transparent;
-      border-radius: 22px;
+      border-radius: 26px;
       font-family: inherit;
-      font-size: 0.85rem;
-      font-weight: 600;
       color: inherit;
+      text-align: left;
       cursor: pointer;
     }
     .person.off {
@@ -765,11 +806,53 @@ export class AppShell extends LitElement {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 28px;
-      height: 28px;
+      flex: 0 0 34px;
+      width: 34px;
+      height: 34px;
       border-radius: 50%;
-      font-size: 0.8rem;
+      font-size: 0.9rem;
       font-weight: 700;
+    }
+    .who {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      gap: 2px;
+      min-width: 0;
+    }
+    .name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      line-height: 1.1;
+    }
+    .counts {
+      font-size: 0.72rem;
+      opacity: 0.7;
+    }
+    .counts b {
+      font-weight: 700;
+      opacity: 1;
+    }
+    .badge {
+      margin-left: 5px;
+      padding: 1px 6px;
+      border-radius: 8px;
+      background: #e8590c;
+      color: #fff;
+      font-weight: 600;
+    }
+    .bar {
+      display: block;
+      height: 4px;
+      margin-top: 2px;
+      overflow: hidden;
+      background: #e2e4e8;
+      border-radius: 2px;
+    }
+    .fill {
+      display: block;
+      height: 100%;
+      border-radius: 2px;
     }
     .view {
       flex: 1;

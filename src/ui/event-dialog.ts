@@ -1,6 +1,5 @@
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
 import type { Person } from "../people.js";
-import { FAMILY_OWNER_ID } from "../people.js";
 import type { OwnedEvent } from "./grid.js";
 import {
   defaultFormValues,
@@ -59,7 +58,8 @@ export class EventDialog extends LitElement {
   error: string | null = null;
 
   _values: EventFormValues = defaultFormValues(new Date());
-  _ownerId: string = FAMILY_OWNER_ID;
+  /** Empty until a person is picked, or defaulted to the first on open. */
+  _ownerId = "";
   _scope: EditScope = "single";
   _confirmingDelete = false;
 
@@ -84,10 +84,20 @@ export class EventDialog extends LitElement {
       this._values = this.event
         ? toFormValues(this.event)
         : defaultFormValues(this.day ?? new Date(), this.hour);
-      this._ownerId = this.event ? this.event.ownerId : this._ownerId;
+      // Editing keeps the event's own calendar. Creating pre-selects the first
+      // person so a one-tap "type a name and save" still works, while the
+      // picker stays visible so it is obvious what it landed on.
+      this._ownerId = this.event
+        ? this.event.ownerId
+        : this.#knownOwner(this._ownerId) ?? this.people[0]?.id ?? "";
       this._scope = "single";
       this._confirmingDelete = false;
     }
+  }
+
+  /** The id if it still names someone on the roster, otherwise null. */
+  #knownOwner(ownerId: string): string | null {
+    return this.people.some((person) => person.id === ownerId) ? ownerId : null;
   }
 
   get #isRecurring(): boolean {

@@ -847,7 +847,7 @@ app owns the whole screen.
 
 | Region | Contents |
 |---|---|
-| Left rail | Calendar (active), Chores, Lists, then **Home Assistant** and Settings pinned to the bottom |
+| Left rail | Calendar (active), Chores, Lists, then Settings pinned to the bottom. A Home Assistant link lands here when there is an HA dashboard worth linking to |
 | Header | Household name + live clock, date navigation, view switch |
 | Person strip | One chip per person, colored, tapping filters the grid. Becomes chore progress in Phase 3 |
 | Main | The calendar view |
@@ -856,12 +856,15 @@ app owns the whole screen.
 The household name comes from HA's own instance name (`get_config` →
 `location_name`), so it needs no configuration of ours.
 
-**Decision — the default view is a rolling multi-day time grid**, five days
-starting today: day columns, an hour axis, events as blocks positioned and
-sized by their real times, tinted with their owner's color. All-day items sit
-in a band above the grid. The month grid becomes the *secondary* view, one tap
-away — it is still what the dry-erase board was, and still answers "what's
-happening on the 14th?".
+**Decision — the default view is a multi-day time grid**: day columns, an
+hour axis, events as blocks positioned and sized by their real times, tinted
+with their owner's color. All-day items sit in a band above the grid. The month
+grid becomes the *secondary* view, one tap away — it is still what the
+dry-erase board was, and still answers "what's happening on the 14th?".
+
+> Amended by [ADR-0028]: this began as a rolling five days from today, copying
+> the reference screenshot. It is now a real Sunday-to-Saturday week, so
+> "this week" means the same thing to everyone in the house.
 
 **Consequences.**
 
@@ -891,6 +894,54 @@ page already sidesteps it.
 
 ---
 
+## ADR-0028
+
+**There is no built-in shared calendar. Every calendar comes from the roster, and the week view is a real Sunday-to-Saturday week.**
+
+Status: **Accepted** · 2026-09-04 · amends [ADR-0017] and [ADR-0027] · user decision
+
+Two corrections from seeing it running.
+
+**1. `calendar.family` was hardcoded.** The shell always added a "Family"
+target with a fixed entity id, a fixed label and a fixed colour, on top of
+whatever the roster said. The household spotted it immediately — *"remove the
+family events, it looks like that's hardcoded in"* — and they were right. It
+also contradicted [ADR-0026]: a fork should carry no assumption about what a
+particular household's entities are called, and `calendar.family` is exactly
+such an assumption.
+
+Now every calendar shown comes from the roster. A household that wants a shared
+calendar adds one in Settings like any other entry — name it "Family", give it
+a colour, adopt the existing `calendar.family` if they have one. The concept
+survives; the special case does not.
+
+[ADR-0017] still holds: a person *is* a calendar entity, because the event
+schema has nowhere to put "whose is this". What changes is that "the shared
+one" is no longer privileged in code.
+
+**Consequence.** With an empty roster there is nowhere to write an event, so
+tapping a day or the **+** opens Settings rather than a form that cannot save.
+
+**2. Five rolling days became seven, Sunday to Saturday.** [ADR-0027] chose a
+rolling five-day window from the reference screenshot. In use, a wall calendar
+should answer "what does *this week* look like" the same way for everyone in
+the house, and a window that silently reanchors each day does not. The view is
+now `startOfWeek(cursor, weekStartsOn)` plus seven days, paging by whole weeks,
+with `weekStartsOn` already on the roster so a Monday-start household gets
+Monday–Sunday.
+
+**3. The person strip carries counts**, scoped to whatever is on screen: how
+many events that person has in view, how many are already past, and how many
+are today. The subscription window *is* the view window, so "total" always
+means "in what you are looking at" without any extra fetching. Counts ignore
+the filter toggles — hiding someone must not zero their numbers, or the strip
+stops explaining why you hid them.
+
+This is the shape the chore progress bars will take in Phase 3; the reference
+shows `2/2` per person, and this is the calendar half of that.
+
+---
+
 [ADR-0001]: #adr-0001
 [ADR-0002]: #adr-0002
 [ADR-0003]: #adr-0003
@@ -912,5 +963,6 @@ page already sidesteps it.
 [ADR-0025]: #adr-0025
 [ADR-0026]: #adr-0026
 [ADR-0027]: #adr-0027
+[ADR-0028]: #adr-0028
 [Phase 1]: PLAN.md#phase-1--live-month-view--current
 [Phase 4]: PLAN.md#phase-4--recurring-chores

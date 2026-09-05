@@ -191,12 +191,14 @@ calendars is a delete + create, which mints a **new UID** and quietly undermines
 Calendar as the reference: this is a family calendar appliance that runs on HA,
 not an HA tablet showing a calendar.
 
-- [x] Left rail — Calendar, Chores, Lists, then Home Assistant and Settings
+- [x] Left rail — Calendar, Chores, Lists, then Settings
 - [x] Header — household name from HA's own instance name, live clock,
       date navigation, Week/Month switch
-- [x] Person strip — colored chips that filter the grid
-- [x] **Rolling 5-day time grid as the default view** — day columns, hour axis,
-      events positioned and sized by real times, tinted by owner
+- [x] Person strip — colored chips that filter the grid, each showing how many
+      events that person has in view, how many are past, and how many are today
+- [x] **Seven-day time grid as the default view** — Sunday to Saturday, day
+      columns, hour axis, events positioned and sized by real times, tinted by
+      owner ([ADR-0028]; it started as a rolling five days)
 - [x] All-day band above the grid
 - [x] Floating **+** to add
 - [x] Month grid kept as the secondary view
@@ -219,8 +221,8 @@ prefilled to that hour.
   frozen; and the grid must auto-scroll to now, or it opens at 7am while the
   day is happening at 5pm.
 
-**Still to do here:** the person strip shows filters, not chore progress. It
-becomes progress bars in Phase 3, which is what the reference shows.
+**Still to do here:** the strip counts *calendar events*. Phase 3 adds the
+chore half, which is what the reference's `2/2` actually measures.
 
 ---
 

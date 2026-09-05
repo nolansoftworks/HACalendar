@@ -14,10 +14,15 @@ dry-erase calendar on the kitchen wall.
 
 **A family calendar appliance that runs on Home Assistant** ([ADR-0027](docs/DECISIONS.md#adr-0027)).
 The app owns the whole screen: a left rail for Calendar / Chores / Lists, a
-header with the household name and the time, and a rolling five-day time grid
-as the default view. Home Assistant is reachable from the rail as a
-*destination* — it is not the frame wrapped around us. HA's own `/calendar`,
-`/todo` and the rest of `default_config` are unrelated to this app.
+header with the household name and the time, and a Sunday-to-Saturday time grid
+as the default view. Home Assistant is a *destination*, not the frame wrapped
+around us — HA's own `/calendar`, `/todo` and the rest of `default_config` are
+unrelated to this app.
+
+**Nothing about your household is hardcoded.** There is no built-in "family"
+calendar; every calendar shown comes from the people you add in Settings
+([ADR-0028](docs/DECISIONS.md#adr-0028)). If you want a shared calendar, add one
+called Family alongside everyone else.
 
 **One bundle, two mount points.**
 
@@ -167,7 +172,8 @@ persisted to `localStorage` afterward.
 - [x] Month view, live off `calendar/event/subscribe`
 - [x] Multi-calendar overlay — one grid, one color per person, filter toggles
 - [x] Event create / edit / delete (touch-first dialogs)
-- [x] Appliance shell — left rail, header, rolling 5-day time grid
+- [x] Appliance shell — left rail, header, Sunday-to-Saturday time grid
+- [x] Per-person event counts in the header strip
 - [ ] Per-kid chores via `local_todo`
 - [ ] Recurring chores — `todo` has **no** recurrence support. Model them as
       recurring calendar events (`RRULE`) and materialize today's instances

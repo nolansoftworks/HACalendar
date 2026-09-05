@@ -26,11 +26,6 @@ export interface Roster {
   people: Person[];
 }
 
-/** Owner id for events from the shared household calendar. */
-export const FAMILY_OWNER_ID = "__family";
-export const FAMILY_LABEL = "Family";
-export const FAMILY_COLOR = "#0b7285";
-
 /** Shown when nobody is set up yet, so a fresh install explains itself. */
 export const ROSTER_SETUP_HINT =
   "No people yet — tap Settings to add everyone in the house.";

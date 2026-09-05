@@ -31,10 +31,7 @@ export class HaCalendarPanel extends LitElement {
     if (!this.hass) return html`<p>Connecting…</p>`;
 
     return html`
-      <hacal-app-shell
-        .client=${clientFromHass(this.hass)}
-        .entityId=${this.panel?.config?.entity_id ?? "calendar.family"}
-      ></hacal-app-shell>
+      <hacal-app-shell .client=${clientFromHass(this.hass)}></hacal-app-shell>
     `;
   }
 

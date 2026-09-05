@@ -1,6 +1,5 @@
 import { LitElement, html, css, nothing } from "lit";
 import type { Person } from "../people.js";
-import { FAMILY_COLOR, FAMILY_LABEL, FAMILY_OWNER_ID } from "../people.js";
 import { readableTextOn } from "./grid.js";
 
 /**
@@ -19,14 +18,11 @@ import { readableTextOn } from "./grid.js";
 export class PersonPicker extends LitElement {
   static override properties = {
     people: { attribute: false },
-    includeFamily: { type: Boolean },
     heading: { type: String },
     selected: { type: String },
   };
 
   people: Person[] = [];
-  /** Whether the shared household calendar is an option. */
-  includeFamily = true;
   heading = "Who is this for?";
   selected: string | null = null;
 
@@ -42,17 +38,11 @@ export class PersonPicker extends LitElement {
   }
 
   override render() {
-    const options: Array<{ id: string; name: string; color: string }> = [];
-    if (this.includeFamily) {
-      options.push({
-        id: FAMILY_OWNER_ID,
-        name: FAMILY_LABEL,
-        color: FAMILY_COLOR,
-      });
-    }
-    for (const person of this.people) {
-      options.push({ id: person.id, name: person.name, color: person.color });
-    }
+    const options = this.people.map((person) => ({
+      id: person.id,
+      name: person.name,
+      color: person.color,
+    }));
 
     return html`
       ${this.heading ? html`<h2>${this.heading}</h2>` : nothing}

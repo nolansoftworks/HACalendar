@@ -70,7 +70,6 @@ async function main(): Promise<void> {
   // default. In `vite dev` the origin is :5173, so pass ?ha= once.
   const hassUrl = readSetting(STORAGE_URL, "ha", location.origin);
   const token = readSetting(STORAGE_TOKEN, "token");
-  const entityId = readSetting("hacal.entity", "entity", "calendar.family");
 
   if (!token) {
     renderSetup(root);
@@ -88,10 +87,6 @@ async function main(): Promise<void> {
 
   const view = document.createElement("hacal-app-shell");
   view.client = clientFromConnection(connection);
-  view.entityId = entityId;
-  // The rail's Home Assistant button must point at the real instance, which
-  // for this mount point is a different origin from the page itself.
-  view.haUrl = hassUrl;
   root.replaceChildren(view);
 }
 
