@@ -174,10 +174,13 @@ persisted to `localStorage` afterward.
 - [x] Event create / edit / delete (touch-first dialogs)
 - [x] Appliance shell — left rail, header, Sunday-to-Saturday time grid
 - [x] Per-person event counts in the header strip
-- [ ] Per-kid chores via `local_todo`
-- [ ] Recurring chores — `todo` has **no** recurrence support. Model them as
-      recurring calendar events (`RRULE`) and materialize today's instances
-      into each kid's todo list with a nightly automation.
+- [x] A chore board per person via `local_todo` — one-tap check-off, overdue in
+      words, two-tap delete
+- [x] Recurring chores — `todo` has **no** recurrence support, so a repeat is a
+      recurring calendar event (`RRULE`) on the person's chore schedule
+      calendar, and a nightly automation materializes today's instances onto
+      their list at 00:05. Set it from the add-a-chore dialog; cancel it from
+      the board.
 - [ ] iCloud sync via `vdirsyncer` against the `local_calendar` `.ics`
 
 ## Production topology

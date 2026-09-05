@@ -4,10 +4,12 @@ node_modules/
 *.stackdump
 
 # HA writes its database, logs, secrets and .storage into the dev config dir.
-# Keep the one file we author, ignore everything else it generates.
+# Keep the files we author, ignore everything it generates.
 dev/config/*
 !dev/config/configuration.yaml
+# The nightly chore materializer is source, not HA state -- it happens to live
+# in the config dir because that is where `!include_dir_merge_list` reads from.
+!dev/config/automations/
 
 # Build output lands inside the ignored dev config tree, but be explicit.
 dev/config/www/
-

@@ -1,10 +1,12 @@
 # Status
 
 **Last updated:** 2026-09-04
-**Current phase:** Phase 3 — Chores (`docs/PLAN.md`) — mechanics complete
-**Blocked on:** people, not protocols. Phase 2 needs a non-technical adult on
-the touchscreen; Phase 3 needs a child actually using the chore board. Neither
-can be closed from a script, and everything either one depends on is verified.
+**Current phase:** Phase 4 — Recurring chores (`docs/PLAN.md`) — built and
+driven, waiting on one deploy
+**Blocked on:** people and a restart. Phase 2 needs a non-technical adult on
+the touchscreen; Phase 3 needs a child actually using the chore board; Phase 4
+needs the server to pull and restart so the nightly automation is actually
+loaded. Nothing is blocked on a protocol question.
 
 Keep this file honest. The single most useful thing it does is separate what
 has been **observed** from what has only been **built**. A passing typecheck is
@@ -41,8 +43,30 @@ is broken when it isn't.
 **Phase 3's mechanics are done.** Everyone has a chore list, the Chores rail
 destination works, check-off is one tap and records the completion in the
 logbook, chores can be deleted, and overdue ones say how late they are in
-words. What is left is a child using it — plus Phase 4's nightly materializer
-for recurring chores.
+words. What is left is a child using it.
+
+**Phase 4 is built and driven, and needs one deploy to be real.** Repeating
+chores are authored in the add-a-chore dialog ("Does it happen again?"), stored
+as `RRULE` events on a per-person chore schedule calendar ([ADR-0030]), listed
+as one row per rule under *Happens again* on the board, and cancelled with two
+taps. The nightly materializer lives in
+`dev/config/automations/chores-nightly.yaml`; every action in it has been run
+against the live instance and behaves, including the 00:05 sweep, dedupe and
+rollover.
+
+**It is not running yet.** HA loads automations only via `configuration.yaml`,
+and the server's checkout predates the `!include_dir_merge_list` line. On the
+server:
+
+```bash
+git pull
+npm install && npm run build
+docker compose -f dev/docker-compose.yml restart   # configuration.yaml changed
+```
+
+Then confirm an `automation.*` entity named *Chores — sweep and materialize*
+exists in Developer Tools → States. **If it doesn't, nothing will say so** —
+see the gotcha below.
 
 **Lists** is the one rail item still disabled. It has no phase of its own yet;
 the obvious shape is "every `todo.*` entity that isn't somebody's chore list",
@@ -127,6 +151,21 @@ Things actually observed, with the check that produced them.
 | **Deleting a chore needs two taps** | first tap shows "Delete?", nothing removed; second removed exactly that item by uid |
 | **The strip does not filter on the chore board** | chips render `static`; tapping a name changed nothing and no column vanished |
 | **The calendar strip shows chores due today** | "2 chores" on the people who owe some, counting due-today plus overdue |
+| **A person can wear two calendars without confusing the roster** | five schedule calendars provisioned and labelled; every person kept their own calendar, and `fetchRoster` picked the schedule one separately — in both registry orders |
+| **The schedule label is machinery, not a sixth person** | `Chore schedule` wears five calendars and is excluded from the roster |
+| **The automation derives the whole household from labels** | `label_id('Chore schedule')` → five calendars → paired to five chore lists through the owner label; the YAML names nobody |
+| **Today's rule materializes, once, due today** | ran the shipped YAML's `actions:` over `execute_script`; a weekly rule on one list and a daily rule on another both landed |
+| **Tomorrow's rule does not materialize today** | a rule for the next weekday produced nothing |
+| **Running the materializer twice adds nothing** | second run left both lists identical |
+| **Rollover keeps one row and never bumps the due date** | an item missed for a week stayed single, still due 7 days ago, with its rule scheduled again today ([ADR-0013]) |
+| **The 00:05 sweep clears yesterday's completed items** | a completed item was gone after the run; incomplete ones untouched ([ADR-0022]) |
+| **Repeats are authored from the app** | picked "Every Friday" in the add-a-chore dialog; the RRULE landed on `calendar.grayson_chores` and the rule rendered under *Happens again* |
+| **A rule starting today does not wait for midnight** | the item appeared on the list immediately, due today, and the next automation run added no duplicate |
+| **Cancelling a rule takes two taps and stops the series** | first tap said "Stop it?" and removed nothing; second removed the whole series, and a later run materialized nothing |
+| **Cancelling a rule leaves the item already earned** | today's materialized chore survived the cancel |
+| **A schedule calendar is created on demand** | deleted one person's, then scheduled a repeat from her column: it was recreated, labelled, and her own calendar untouched |
+| **Chore rules stay out of the calendar grid** | the week view subscribes only to people's own calendars; no rule ever rendered as an appointment |
+| **HA silently ignores automations written over the config API** | `POST /api/config/automation/config/<id>` returned `{"result":"ok"}`, `automation.reload` returned 200, and **zero** automation entities existed — `configuration.yaml` had no include |
 
 ---
 
@@ -154,6 +193,15 @@ verified on 2026-09-03. What remains has still never been executed.
 - **The overlay has never run with more than two people**, and never with a
   person who has a `choreList` but no `calendar`. `normalizeRoster()` covers
   that case in tests; the rendering path does not.
+- **The nightly automation has never fired on its own trigger.** Its actions
+  have all been driven by hand against the live instance, but the server's
+  `configuration.yaml` does not yet include `automations/`, so nothing has run
+  at 00:05 and no chore has ever appeared overnight unasked. This is a deploy,
+  not a question — see *Next action*.
+- **No repeating chore has survived a real week.** Everything observed happened
+  inside one afternoon, with the calendar's own rules and a hand-run
+  materializer. "Every Tuesday" arriving on a Tuesday nobody arranged is still
+  a prediction.
 
 ### Testability debt — resolved
 
@@ -178,6 +226,14 @@ out, breaking `npm run build` and `npm run typecheck` with
 
 **HA caches `/local/` aggressively.** After a rebuild, bump `module_url` to
 `panel.js?v=N` or hard-refresh. Expect to lose ten minutes to this once.
+
+**An automation written over the config API loads only if
+`configuration.yaml` says so.** `POST /api/config/automation/config/<id>`
+returns `{"result":"ok"}` and writes the file whether or not anything reads it,
+and `automation.reload` then succeeds against nothing. The only symptom is that
+no `automation.*` entity ever appears. This app ships its automation as a file
+under `dev/config/automations/` with an `!include_dir_merge_list` in
+`configuration.yaml` precisely so there is something to check.
 
 ---
 
@@ -215,7 +271,7 @@ does not always inherit the container's `TZ`; they must agree.
 
 ## Decision log health
 
-`docs/DECISIONS.md` holds 23 ADRs. **[ADR-0006] is superseded by [ADR-0023]**
+`docs/DECISIONS.md` holds 30 ADRs. **[ADR-0006] is superseded by [ADR-0023]**
 (server moved from a headless Pi to the always-on laptop; the Pi is now a kiosk
 client). The ones most likely to be wrongly "corrected" by a future agent,
 because they contradict HA's own documentation or look like over-engineering:
@@ -235,6 +291,10 @@ because they contradict HA's own documentation or look like over-engineering:
   and destroys filtering, coloring, and Phase 6 sync.
 - **[ADR-0022]** — sweeping completed items at any hour other than 00:05 erases
   checkmarks children earned that day.
+- **[ADR-0030]** — a person owning two calendars looks like an accident to
+  tidy up. Collapsing them puts chore rules on the kitchen wall grid; telling
+  them apart by entity id instead of by label breaks the first time somebody
+  renames one in HA's settings.
 
 [ADR-0001]: DECISIONS.md#adr-0001
 [ADR-0002]: DECISIONS.md#adr-0002
@@ -252,3 +312,6 @@ because they contradict HA's own documentation or look like over-engineering:
 [ADR-0022]: DECISIONS.md#adr-0022
 [ADR-0023]: DECISIONS.md#adr-0023
 [Phase 1]: PLAN.md#phase-1--live-month-view--current
+[ADR-0026]: DECISIONS.md#adr-0026
+[ADR-0029]: DECISIONS.md#adr-0029
+[ADR-0030]: DECISIONS.md#adr-0030

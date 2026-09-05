@@ -132,3 +132,79 @@ test("adoption list survives HA refusing the config-entry query", async () => {
   assert.deepEqual(free.map((c) => c.entityId), ["calendar.spare"]);
   assert.equal(free[0]?.name, "calendar.spare", "falls back to the entity id");
 });
+
+test("a schedule calendar is not mistaken for the person's own", async () => {
+  // Both wear Alex's label ([ADR-0030]). Only the shared "Chore schedule" one
+  // tells them apart -- and getting this backwards would put the family's
+  // appointments on the chore calendar and every chore rule on the wall grid.
+  const client = stubClient(
+    [label("alex", "Alex"), label("chore_schedule", "Chore schedule")],
+    [
+      entity("calendar.alex", ["alex"]),
+      entity("calendar.alex_chores", ["alex", "chore_schedule"]),
+      entity("todo.alex_chores", ["alex"]),
+    ],
+  );
+  const roster = await fetchRoster(client);
+  assert.deepEqual(roster.people, [
+    {
+      id: "alex",
+      name: "Alex",
+      color: "#123456",
+      calendar: "calendar.alex",
+      choreList: "todo.alex_chores",
+      choreCalendar: "calendar.alex_chores",
+    },
+  ]);
+});
+
+test("registry order does not decide which calendar is which", async () => {
+  // The schedule calendar is created second in real life, so a "first match
+  // wins" rule looks correct right up until HA hands them back the other way.
+  const client = stubClient(
+    [label("alex", "Alex"), label("chore_schedule", "Chore schedule")],
+    [
+      entity("calendar.alex_chores", ["alex", "chore_schedule"]),
+      entity("calendar.alex", ["alex"]),
+    ],
+  );
+  const [alex] = (await fetchRoster(client)).people;
+  assert.equal(alex?.calendar, "calendar.alex");
+  assert.equal(alex?.choreCalendar, "calendar.alex_chores");
+});
+
+test("the schedule label is machinery, never a person", async () => {
+  const client = stubClient(
+    [label("alex", "Alex"), label("chore_schedule", "Chore schedule")],
+    [
+      entity("calendar.alex", ["alex"]),
+      entity("calendar.alex_chores", ["alex", "chore_schedule"]),
+    ],
+  );
+  const roster = await fetchRoster(client);
+  assert.deepEqual(roster.people.map((p) => p.id), ["alex"]);
+});
+
+test("a household that has never scheduled a repeat has no schedule label", async () => {
+  const client = stubClient(
+    [label("alex", "Alex")],
+    [entity("calendar.alex", ["alex"]), entity("todo.alex_chores", ["alex"])],
+  );
+  const [alex] = (await fetchRoster(client)).people;
+  assert.equal(alex?.calendar, "calendar.alex");
+  assert.equal(alex?.choreCalendar, undefined, "made on demand, not up front");
+});
+
+test("the schedule label is matched by name, whatever HA called its id", async () => {
+  // A household with a label of that name already gets ours as
+  // `chore_schedule_2`; the id is HA's to choose, so nothing may depend on it.
+  const client = stubClient(
+    [label("alex", "Alex"), label("chore_schedule_2", "Chore Schedule")],
+    [
+      entity("calendar.alex", ["alex"]),
+      entity("calendar.alex_chores", ["alex", "chore_schedule_2"]),
+    ],
+  );
+  const [alex] = (await fetchRoster(client)).people;
+  assert.equal(alex?.choreCalendar, "calendar.alex_chores");
+});

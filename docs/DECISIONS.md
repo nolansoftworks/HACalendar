@@ -999,6 +999,64 @@ nobody had tested.
 
 ---
 
+## ADR-0030
+
+**A person's chore schedule is a second calendar, told apart by a shared label — not by its entity id.**
+
+Status: **Accepted** · 2026-09-04 · implements [ADR-0012] under [ADR-0026]
+
+[ADR-0012] settled that a repeating chore lives on `calendar.chores_<kid>` and
+materializes onto `todo.chores_<kid>`, because HA's event schema has nowhere to
+record who a chore belongs to. That is still right. What it could not
+anticipate is [ADR-0026]: the roster stopped being a file and became HA's label
+registry, and a person became "the label wearing a calendar".
+
+Which breaks the naming scheme. Once a person owns **two** calendars, both
+wearing their label, something has to say which is which — and it cannot be the
+entity id. Ids are renameable from HA's own settings, and a household that
+renames `calendar.emma_chores` would silently turn their daughter's chore
+schedule into her personal calendar, moving every appointment she has.
+
+**Decision.** The schedule calendar wears a **second, shared label — "Chore
+schedule"**. A person's own calendar is the one *without* it. The label is:
+
+- created on demand, the first time anybody in the house schedules a repeat, so
+  a household of one-off chores never sees it;
+- matched by **name**, never by `label_id` — HA generates the id, and a
+  household that already had a label of that name pushes ours to
+  `chore_schedule_2`;
+- itself excluded from the roster, or it would arrive as a sixth family member
+  wearing five calendars.
+
+The nightly automation resolves the same label the same way
+(`label_id('Chore schedule')`), then pairs each schedule calendar with its
+owner's chore list through the *other* label on it. So the household detail
+lives entirely in HA's registries, and the automation file names nobody
+([ADR-0028]).
+
+**Consequences.**
+
+- Three entities per person once they use repeats, two before. That is one more
+  than [ADR-0012] predicted, and it buys rename-safety.
+- The schedule calendar is deliberately **not** rendered in the week or month
+  grid. A chore rule is not an appointment, and "Feed the dog" drawn seven
+  times would bury the day it is on. The chore board shows the rules instead,
+  one row per rule rather than per instance.
+- Deleting a person detaches or deletes all three.
+- A rule deleted with no `recurrence_id` removes the whole series, which is what
+  "stop it repeating" means. Items already materialized stay put — cancelling a
+  rule is not a claim that today's chore was done.
+
+**Evidence** — live against HA 2026.7.2, 2026-09-04. Five schedule calendars
+provisioned through the config-flow REST API and labelled; `fetchRoster` kept
+every person's own calendar and picked up the schedule one separately, in both
+registry orders. Deleting one person's schedule calendar and then scheduling a
+repeat from the chore board recreated it, labelled it, and left her own
+calendar alone. `label_entities('Chore schedule')` returned exactly the five,
+and pairing through the second label produced the five chore lists.
+
+---
+
 [ADR-0001]: #adr-0001
 [ADR-0002]: #adr-0002
 [ADR-0003]: #adr-0003
@@ -1022,5 +1080,6 @@ nobody had tested.
 [ADR-0027]: #adr-0027
 [ADR-0028]: #adr-0028
 [ADR-0029]: #adr-0029
+[ADR-0030]: #adr-0030
 [Phase 1]: PLAN.md#phase-1--live-month-view--current
 [Phase 4]: PLAN.md#phase-4--recurring-chores

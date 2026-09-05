@@ -21,6 +21,15 @@ panel_custom:
     config:
       entity_id: calendar.family
 
+# The nightly chore materializer ([ADR-0008], Phase 4). Versioned in this repo
+# rather than authored in HA's UI, because it is machinery: it derives every
+# household detail from the label registry and never needs editing.
+#
+# Without this line HA still *accepts* automations over the config API and
+# writes them to automations.yaml -- and then loads none of them, with no
+# error anywhere. Verified 2026-09-04.
+automation nightly_chores: !include_dir_merge_list automations/
+
 # local_calendar is config-flow only -- it cannot be set up from YAML.
 # After first boot: Settings → Devices & Services → Add Integration →
 # "Local Calendar", name it "Family". That yields calendar.family.

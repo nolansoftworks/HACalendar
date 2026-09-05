@@ -1,12 +1,24 @@
 import { LitElement, html, css, nothing, type PropertyValues } from "lit";
+import { parseHaDate } from "../ha/calendar.js";
 import type { ChoreItem } from "../ha/chores.js";
 import type { Person } from "../people.js";
 import { findDuplicate } from "./chore-list.js";
 import { formatDate } from "./event-form.js";
+import {
+  REPEAT_CHOICES,
+  describeChoice,
+  type RepeatChoice,
+} from "./repeat-rule.js";
 
 export interface ChoreAddDetail {
   summary: string;
   due: string;
+  /**
+   * Anything but `none` makes this a *rule* on the person's chore schedule
+   * calendar rather than a one-off item ([ADR-0030]). The shell decides what
+   * that means; the dialog only asks the question.
+   */
+  repeat: RepeatChoice;
 }
 
 /**
@@ -16,6 +28,13 @@ export interface ChoreAddDetail {
  * refuse: items are addressed by uid, so duplicates break nothing
  * ([ADR-0029]). Refusing a child's legitimate entry to prevent a corruption
  * that cannot happen would be the worse bug.
+ *
+ * *"Does this happen again?"* is asked right here rather than behind a
+ * separate "make this recurring" screen: a repeating chore is the normal case
+ * for a household, and hiding it would mean the wall calendar never grows one.
+ * `todo` cannot repeat ([ADR-0008]), so a repeat becomes a calendar rule that
+ * the nightly automation materializes — but that is machinery, and what the
+ * dialog says is "Every Tuesday".
  *
  * There was briefly a second mode here — *"who did this?"* on check-off. It
  * has gone: the chore already sits on somebody's list, so the question
@@ -32,6 +51,7 @@ export class ChoreDialog extends LitElement {
     error: { type: String },
     _summary: { state: true },
     _due: { state: true },
+    _repeat: { state: true },
   };
 
   /** Whose list is being added to. */
@@ -43,6 +63,7 @@ export class ChoreDialog extends LitElement {
 
   _summary = "";
   _due = "";
+  _repeat: RepeatChoice = "none";
 
   #initialized = false;
 
@@ -50,6 +71,7 @@ export class ChoreDialog extends LitElement {
     if (this.#initialized && !changed.has("person")) return;
     this.#initialized = true;
     this._summary = "";
+    this._repeat = "none";
     // Default a new chore to today: a chore with no date never becomes
     // overdue, and overdue-ness is the whole accountability signal ([ADR-0013]).
     this._due = formatDate(new Date());
@@ -66,9 +88,19 @@ export class ChoreDialog extends LitElement {
       this.error = "Give the chore a name.";
       return;
     }
+    // A repeat is anchored to a date -- "every Tuesday" is meaningless without
+    // knowing which Tuesday it starts on.
+    if (this._repeat !== "none" && !this._due) {
+      this.error = "Pick the day it starts.";
+      return;
+    }
     this.dispatchEvent(
       new CustomEvent<ChoreAddDetail>("chore-add", {
-        detail: { summary: this._summary.trim(), due: this._due },
+        detail: {
+          summary: this._summary.trim(),
+          due: this._due,
+          repeat: this._repeat,
+        },
         bubbles: true,
         composed: true,
       }),
@@ -76,7 +108,13 @@ export class ChoreDialog extends LitElement {
   }
 
   override render() {
-    const clash = findDuplicate(this.existing, this._summary);
+    // Only worth mentioning for a one-off. A repeat deliberately produces an
+    // item of the same name every time it comes round, so saying "they already
+    // have one of those" would be noise on every single rule.
+    const clash =
+      this._repeat === "none"
+        ? findDuplicate(this.existing, this._summary)
+        : null;
 
     return html`
       <div class="scrim" @click=${this.#cancel}></div>
@@ -106,7 +144,7 @@ export class ChoreDialog extends LitElement {
             </p>`
           : nothing}
         <label class="field">
-          <span>Due</span>
+          <span>${this._repeat === "none" ? "Due" : "Starting"}</span>
           <input
             id="chore-due"
             type="date"
@@ -116,6 +154,34 @@ export class ChoreDialog extends LitElement {
             }}
           />
         </label>
+
+        <div class="field">
+          <span>Does it happen again?</span>
+          <div class="repeats" role="radiogroup" aria-label="How often">
+            ${REPEAT_CHOICES.map(
+              (choice) => html`
+                <button
+                  class="repeat ${this._repeat === choice ? "on" : ""}"
+                  id="repeat-${choice}"
+                  role="radio"
+                  aria-checked=${this._repeat === choice ? "true" : "false"}
+                  @click=${() => {
+                    this._repeat = choice;
+                  }}
+                >
+                  ${describeChoice(choice, this._due)}
+                </button>
+              `,
+            )}
+          </div>
+        </div>
+        ${this._repeat === "none"
+          ? nothing
+          : html`<p class="note repeat-note" role="status">
+              ${this.person?.name ?? "They"} gets this on their list each time
+              it comes round, from ${startWord(this._due)} on. Ticking one off
+              doesn't cancel the rest.
+            </p>`}
 
         <div class="actions">
           <span class="spacer"></span>
@@ -211,6 +277,33 @@ export class ChoreDialog extends LitElement {
       border-radius: 10px;
       box-sizing: border-box;
     }
+    .repeats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .repeat {
+      /* Fingers, not a mouse: these are the same size as the buttons below. */
+      min-height: 48px;
+      padding: 0 14px;
+      background: #f4f4f4;
+      border: 2px solid #dcdcdc;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      color: inherit;
+      cursor: pointer;
+    }
+    .repeat.on {
+      background: #0b7285;
+      border-color: #0b7285;
+      color: #fff;
+      font-weight: 600;
+    }
+    .repeat-note {
+      background: #e7f5f8;
+      color: #0b5566;
+    }
     .actions {
       display: flex;
       align-items: center;
@@ -240,6 +333,16 @@ export class ChoreDialog extends LitElement {
       opacity: 0.5;
     }
   `;
+}
+
+/** "today", or a date, so the note reads as a sentence either way. */
+function startWord(due: string): string {
+  if (!due) return "the day you pick";
+  if (due === formatDate(new Date())) return "today";
+  return parseHaDate(due).toLocaleDateString(undefined, {
+    month: "long",
+    day: "numeric",
+  });
 }
 
 customElements.define("hacal-chore-dialog", ChoreDialog);

@@ -18,6 +18,16 @@ export interface Person {
   color: string;
   choreList?: string;
   calendar?: string;
+  /**
+   * Where this person's *repeating* chores are stored ([ADR-0030]): a second
+   * calendar wearing both their label and the "Chore schedule" one. `todo` has
+   * no recurrence, so a repeat is an `RRULE` event here that the nightly
+   * automation materializes onto `choreList` ([ADR-0008]).
+   *
+   * Never rendered in the week or month grid -- a chore rule is not an
+   * appointment, and showing "Feed the dog" seven times would bury the day.
+   */
+  choreCalendar?: string;
 }
 
 export interface Roster {

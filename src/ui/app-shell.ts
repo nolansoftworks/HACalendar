@@ -3,13 +3,18 @@ import type { HaClient } from "../ha/client.js";
 import {
   createEvent,
   deleteEvent,
+  parseHaDate,
   subscribeCalendarEvents,
   updateEvent,
   type CalendarEventInput,
   type HaCalendarEvent,
   type RecurrenceTarget,
 } from "../ha/calendar.js";
-import { createChoreList, fetchRoster } from "../ha/roster.js";
+import {
+  createChoreCalendar,
+  createChoreList,
+  fetchRoster,
+} from "../ha/roster.js";
 import {
   addChore,
   logCompletion,
@@ -21,6 +26,7 @@ import {
 import {
   addDays,
   readableTextOn,
+  startOfDay,
   startOfMonth,
   startOfWeek,
   visibleRange,
@@ -29,7 +35,8 @@ import {
 import { dayColumns } from "./week-layout.js";
 import { personStats } from "./person-stats.js";
 import { viewLabel } from "./range-label.js";
-import { toEventInput } from "./event-form.js";
+import { formatDate, toEventInput } from "./event-form.js";
+import { buildRrule, choreRules, type ChoreRule } from "./repeat-rule.js";
 import "./week-view.js";
 import "./month-view.js";
 import "./chores-view.js";
@@ -38,7 +45,7 @@ import "./event-dialog.js";
 import "./people-settings.js";
 import type { DialogSaveDetail, EditScope } from "./event-dialog.js";
 import type { ChoreAddDetail } from "./chore-dialog.js";
-import { choreProgress } from "./chore-list.js";
+import { choreProgress, findDuplicate } from "./chore-list.js";
 import {
   DEFAULT_ROSTER,
   ROSTER_SETUP_HINT,
@@ -48,6 +55,15 @@ import {
 
 /** Days in the week view. A real Sunday-to-Saturday week, not a rolling window. */
 const DAYS_IN_WEEK = 7;
+
+/**
+ * How far ahead the chore board looks for repeating chores.
+ *
+ * Only far enough to catch a monthly rule at least once -- the board shows one
+ * row per *rule*, so a longer window would fetch thousands of instances of a
+ * daily chore to display the same single line.
+ */
+const RULE_WINDOW_DAYS = 40;
 
 export type CalendarView = "week" | "month";
 /** Which rail destination is showing. */
@@ -85,6 +101,7 @@ export class AppShell extends LitElement {
     _section: { state: true },
     _view: { state: true },
     _chores: { state: true },
+    _rules: { state: true },
     _choreBusy: { state: true },
     _choreAddFor: { state: true },
     _choreError: { state: true },
@@ -112,6 +129,8 @@ export class AppShell extends LitElement {
   _view: CalendarView = "week";
   /** chore list entity id -> its items, as HA last pushed them. */
   _chores: Map<string, ChoreItem[]> = new Map();
+  /** chore schedule calendar -> one row per rule, collapsed from its instances. */
+  _rules: Map<string, ChoreRule[]> = new Map();
   /** Item uids with a write in flight, so a double tap cannot double-fire. */
   _choreBusy: string[] = [];
   /** Whose list the add-a-chore dialog is for, or null when it is closed. */
@@ -310,25 +329,62 @@ export class AppShell extends LitElement {
     const token = ++this.#choreToken;
     await this.#teardownChores();
     this._chores = new Map();
+    this._rules = new Map();
+
+    const ruleStart = startOfDay(this._now);
+    const ruleEnd = addDays(ruleStart, RULE_WINDOW_DAYS);
 
     for (const person of this._roster.people) {
       const listId = person.choreList;
-      if (!listId) continue;
+      if (listId) {
+        try {
+          const unsubscribe = await subscribeChores(
+            this.client,
+            listId,
+            (items) => {
+              if (token !== this.#choreToken) return;
+              const next = new Map(this._chores);
+              next.set(listId, items);
+              this._chores = next;
+            },
+          );
+          if (token !== this.#choreToken) {
+            await unsubscribe();
+            return;
+          }
+          this.#choreUnsubscribes.set(listId, unsubscribe);
+        } catch {
+          // A missing list must not take the board down; the column offers to
+          // create one instead.
+        }
+      }
+
+      // The repeating half ([ADR-0030]). Absent until somebody schedules one,
+      // which is the normal state for a household that only uses one-offs.
+      const scheduleId = person.choreCalendar;
+      if (!scheduleId) continue;
       try {
-        const unsubscribe = await subscribeChores(this.client, listId, (items) => {
-          if (token !== this.#choreToken) return;
-          const next = new Map(this._chores);
-          next.set(listId, items);
-          this._chores = next;
-        });
+        const unsubscribe = await subscribeCalendarEvents(
+          this.client,
+          scheduleId,
+          ruleStart,
+          ruleEnd,
+          (events) => {
+            if (token !== this.#choreToken) return;
+            const next = new Map(this._rules);
+            // One row per rule, not per instance -- a daily chore arrives forty
+            // times over this window.
+            next.set(scheduleId, choreRules(events));
+            this._rules = next;
+          },
+        );
         if (token !== this.#choreToken) {
           await unsubscribe();
           return;
         }
-        this.#choreUnsubscribes.set(listId, unsubscribe);
+        this.#choreUnsubscribes.set(scheduleId, unsubscribe);
       } catch {
-        // A missing list must not take the board down; the column offers to
-        // create one instead.
+        // Same rule as the list: one bad entity must not blank the board.
       }
     }
   }
@@ -612,10 +668,81 @@ export class AppShell extends LitElement {
     if (!person || !person.choreList) return;
     this._choreError = null;
     try {
-      await addChore(this.client, person.choreList, detail.summary, detail.due);
+      if (detail.repeat === "none") {
+        await addChore(
+          this.client,
+          person.choreList,
+          detail.summary,
+          detail.due,
+        );
+      } else {
+        await this.#addRepeatingChore(person, detail);
+      }
       this.#closeChoreDialog();
     } catch (err) {
       this._choreError = errorMessage(err);
+    }
+  }
+
+  /**
+   * A repeating chore is a rule, not an item ([ADR-0008]).
+   *
+   * It becomes an all-day `RRULE` event on the person's chore schedule
+   * calendar, and the nightly automation puts today's instance on their list
+   * at 00:05. Two consequences handled here:
+   *
+   * 1. The schedule calendar is made on demand, so nobody carries a third
+   *    entity until they use it.
+   * 2. If the rule starts *today*, the item is added now as well. Waiting
+   *    until after midnight to see the chore you just typed would read as the
+   *    app having lost it — and the automation will skip it tomorrow because
+   *    it dedupes on outstanding names, exactly as a rollover does.
+   */
+  async #addRepeatingChore(
+    person: Person,
+    detail: ChoreAddDetail,
+  ): Promise<void> {
+    const rrule = buildRrule(detail.repeat, detail.due);
+    if (!rrule || !person.choreList) return;
+
+    let scheduleId = person.choreCalendar;
+    if (!scheduleId) {
+      scheduleId = await createChoreCalendar(this.client, person);
+      await this.#loadRoster();
+    }
+
+    await createEvent(this.client, scheduleId, {
+      summary: detail.summary,
+      start: detail.due,
+      // All-day, and HA's end is exclusive: one day means start + 1.
+      end: formatDate(addDays(parseHaDate(detail.due), 1)),
+      rrule,
+    });
+
+    if (detail.due !== formatDate(this._now)) return;
+    const outstanding = this._chores.get(person.choreList) ?? [];
+    if (findDuplicate(outstanding, detail.summary)) return;
+    await addChore(this.client, person.choreList, detail.summary, detail.due);
+  }
+
+  /**
+   * Stop a chore repeating: delete the whole series, not one instance.
+   *
+   * No `recurrence_id`, so this is the "and all the future ones" delete —
+   * which is what "stop it" means. Items already materialized onto somebody's
+   * list stay there; cancelling a rule is not the same as saying today's chore
+   * was done.
+   */
+  async #onDeleteRule(person: Person, rule: ChoreRule): Promise<void> {
+    const scheduleId = person.choreCalendar;
+    if (!scheduleId) return;
+    this._choreBusy = [...this._choreBusy, rule.uid];
+    try {
+      await deleteEvent(this.client, scheduleId, rule.uid);
+    } catch (err) {
+      this._error = errorMessage(err);
+    } finally {
+      this._choreBusy = this._choreBusy.filter((uid) => uid !== rule.uid);
     }
   }
 
@@ -804,6 +931,7 @@ export class AppShell extends LitElement {
                 <hacal-chores-view
                   .people=${this._roster.people}
                   .itemsByList=${this._chores}
+                  .rulesByCalendar=${this._rules}
                   .now=${this._now}
                   .busyUids=${this._choreBusy}
                   @toggle-chore=${(
@@ -814,6 +942,9 @@ export class AppShell extends LitElement {
                   @delete-chore=${(
                     e: CustomEvent<{ person: Person; item: ChoreItem }>,
                   ) => void this.#onDeleteChore(e.detail.person, e.detail.item)}
+                  @delete-rule=${(
+                    e: CustomEvent<{ person: Person; rule: ChoreRule }>,
+                  ) => void this.#onDeleteRule(e.detail.person, e.detail.rule)}
                   @make-list=${(e: CustomEvent<{ person: Person }>) =>
                     void this.#onMakeList(e.detail.person)}
                 ></hacal-chores-view>

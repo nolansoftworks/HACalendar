@@ -27,6 +27,8 @@ a nice-to-have.**
 | Events stay RFC 5545-clean | [ADR-0009](docs/DECISIONS.md#adr-0009) |
 | UI code depends on `HaClient`, never on `hass` | [ADR-0005](docs/DECISIONS.md#adr-0005) |
 | A person **is** a calendar entity | no `ATTENDEE` field, [ADR-0017](docs/DECISIONS.md#adr-0017) |
+| A repeating chore is a **calendar rule**, not a todo | `todo` has no recurrence, [ADR-0008](docs/DECISIONS.md#adr-0008) |
+| A person's two calendars are told apart by **label** | ids are renameable, [ADR-0030] |
 | The roster is HA labels, never a file in this repo | forkable by anyone, [ADR-0026](docs/DECISIONS.md#adr-0026) |
 | The "who?" picker is intent, never auth | [ADR-0018](docs/DECISIONS.md#adr-0018) |
 | The app owns the screen; HA is a destination | appliance, not a dashboard, [ADR-0027](docs/DECISIONS.md#adr-0027) |
@@ -137,6 +139,33 @@ a nice-to-have.**
     `localhost:5173`. Symptom: `Failed to fetch` when adding a person. Served
     from HA it is same-origin and cannot happen.
 
+15. **A person can own two calendars, and only a label tells them apart.**
+    Their own calendar carries their label; their *chore schedule* calendar
+    carries their label **and** the shared `Chore schedule` one ([ADR-0030]).
+    The schedule calendar holds `RRULE` chore rules, is never drawn in the week
+    or month grid, and is created on demand. Two mistakes to avoid: deciding
+    which is which by entity id (renameable, and getting it backwards moves
+    every appointment somebody has), and letting the `Chore schedule` label
+    itself into the roster as a person.
+
+16. **An automation written over the config API is accepted and then
+    ignored.** `POST /api/config/automation/config/<id>` returns
+    `{"result":"ok"}` and writes `automations.yaml` whether or not
+    `configuration.yaml` includes it; `automation.reload` then returns 200
+    having loaded nothing, and no `automation.*` entity appears. Verified
+    2026-09-04. The nightly materializer therefore ships as a **file** —
+    `dev/config/automations/chores-nightly.yaml`, pulled in by
+    `!include_dir_merge_list automations/` — so a missing include is visible in
+    the diff rather than silent at runtime. Changing it needs a
+    `docker compose restart` (or Reload Automations), not just a rebuild.
+
+17. **The materializer is the one place a chore is matched by name.**
+    `todo.add_item` cannot set a uid ([ADR-0029]), so a scheduled rule and the
+    item it produced can only be paired by summary. That is *matching*, and it
+    is fine. It is still never allowed to pass a name to `update_item` or
+    `remove_item`.
+
+[ADR-0008]: docs/DECISIONS.md#adr-0008
 [ADR-0013]: docs/DECISIONS.md#adr-0013
 [ADR-0017]: docs/DECISIONS.md#adr-0017
 [ADR-0019]: docs/DECISIONS.md#adr-0019
@@ -145,6 +174,7 @@ a nice-to-have.**
 [ADR-0027]: docs/DECISIONS.md#adr-0027
 [ADR-0028]: docs/DECISIONS.md#adr-0028
 [ADR-0029]: docs/DECISIONS.md#adr-0029
+[ADR-0030]: docs/DECISIONS.md#adr-0030
 
 ## Environment bug on this machine
 
@@ -201,7 +231,8 @@ src/ui/week-layout.ts   time-grid geometry — no lit, unit-tested
 src/ui/month-view.ts    the month grid — secondary view, presentational
 src/ui/chores-view.ts   the chore board, one column per person
 src/ui/chore-list.ts    chore ordering + overdue — no lit, unit-tested
-src/ui/chore-dialog.ts  add-a-chore, and who-did-this on check-off
+src/ui/repeat-rule.ts   RRULE <-> English, one row per rule — no lit, tested
+src/ui/chore-dialog.ts  add-a-chore, including "does it happen again?"
 src/ui/event-dialog.ts  touch-first create/edit/delete sheet
 src/ui/person-picker.ts the "who?" picker (ADR-0018) -- reused in Phase 3
 src/ui/people-settings.ts add/edit/remove people, in-app (ADR-0026)
@@ -210,6 +241,7 @@ src/ui/grid.ts          pure grid/date maths — no lit, unit-tested
 src/**/*.test.ts        node:test suites, run by `npm test`
 scripts/                test-only module resolver (.js specifier -> .ts)
 dev/                    HA Container config (see ADR-0023: also production)
+dev/config/automations/ the nightly chore materializer — versioned, not UI-made
 docs/                   DECISIONS, PLAN, STATUS
 ```
 

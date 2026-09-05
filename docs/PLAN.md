@@ -226,7 +226,7 @@ chore half, which is what the reference's `2/2` actually measures.
 
 ---
 
-## Phase 3 — Chores 🔴 **← current**
+## Phase 3 — Chores ✅ mechanics complete
 
 Entity pairs per [ADR-0012]: `calendar.chores_<kid>` + `todo.chores_<kid>`.
 
@@ -274,35 +274,76 @@ and the logbook shows who did it.* Nobody's children have tried it.
 
 ---
 
-## Phase 4 — Recurring chores
+## Phase 4 — Recurring chores 🔴 **← current**
 
-Per [ADR-0008]: recurring chore = `RRULE` event on `calendar.chores_<kid>`,
-materialized into `todo.chores_<kid>`. Chores **roll over until completed**
-([ADR-0013]).
+Per [ADR-0008]: recurring chore = `RRULE` event on the person's chore schedule
+calendar, materialized into their chore list. Chores **roll over until
+completed** ([ADR-0013]).
 
 Runs as a plain HA automation — `calendar.get_events` and `todo.get_items` both
 support `response_variable`. **No custom integration.**
 
-- [ ] Nightly automation, per kid:
-      1. `calendar.get_events` on `calendar.chores_<kid>` for today
-      2. `todo.get_items` on `todo.chores_<kid>` (defaults to `needs_action`)
+- [x] The other half of [ADR-0012]'s entity pair — a chore *schedule* calendar
+      per person, made on demand and told apart from their own calendar by a
+      shared label rather than by its entity id ([ADR-0030])
+- [x] Nightly automation, for every person the label registry knows about:
+      1. `calendar.get_events` on their schedule calendar for today
+      2. `todo.get_items` on their chore list (defaults to `needs_action`)
       3. For each instance whose name is **not** already an incomplete item →
          `todo.add_item(item, due_date)`
-- [ ] Verify idempotency: run it twice, get one item
-- [ ] Verify rollover: skip a week, confirm exactly one item with the
+- [x] Verify idempotency: run it twice, get one item
+- [x] Verify rollover: skip a week, confirm exactly one item with the
       **original** due date. Never bump the due date.
-- [ ] `todo.remove_completed_items` sweep at **00:05, immediately before**
+- [x] `todo.remove_completed_items` sweep at **00:05, immediately before**
       materialization ([ADR-0022]). It takes no filter and removes *every*
       completed item — running it during the day erases a checkmark a child
       earned minutes ago.
+- [x] **A repeat can be set from the app** — "Does it happen again?" in the
+      add-a-chore dialog: just once, every day, weekdays, every *that weekday*,
+      or monthly on that date. Anything else is not offered.
+- [x] **A repeat can be stopped from the app** — the rules get a quiet
+      "Happens again" section at the foot of each column, two taps to cancel,
+      one row per rule rather than per instance
+- [ ] The automation has never fired **on its own trigger** — see below
+
+**Mechanics verified, deployment pending.** Every action in
+`dev/config/automations/chores-nightly.yaml` was driven against the live
+instance by parsing *that file* and running its `actions:` block over
+`execute_script`, so what was tested is the artifact that ships, not a
+transcription of it. Seven assertions passed: today's weekly rule materialized
+exactly once and due *today*; a daily rule on a second person's list did too; a
+rule for tomorrow did not; a second run added nothing; an item missed for a week
+stayed a single row with its original due date untouched; and yesterday's
+completed item was swept. From the UI: authoring "every Friday" wrote the rule,
+put today's instance straight onto the list rather than making a child wait for
+midnight, and a later automation run added no duplicate; cancelling the rule
+took two taps, removed the series, and left the already-materialized item alone.
+
+**What is not verified: the trigger and the loading.** HA reads automations
+only through `configuration.yaml`, and the live instance is running the
+server's checkout, which does not have the `!include_dir_merge_list` line yet.
+Worth knowing why that matters: the config API **accepts** an automation over
+REST and writes `automations.yaml` and then loads nothing, with no error
+anywhere — verified 2026-09-04. So until the server pulls and restarts, the
+materializer exists and works but nothing runs it at 00:05.
+
+```bash
+# on the server, after pulling
+npm install && npm run build
+docker compose -f dev/docker-compose.yml restart   # configuration.yaml changed
+```
 
 **Exit criterion:** "trash every Tuesday" appears on Tuesday, once; running the
 automation twice adds nothing; skipping a week leaves one increasingly-overdue
-item, not two.
+item, not two. All three are observed — but by hand, not by the clock. It stays
+open until the automation has fired on its own at 00:05 and a chore appeared
+overnight without anyone asking.
 
-**Watch for.** Address items by `uid`, never by name ([ADR-0029]). `add_item`
-still cannot *set* a uid, so the materializer must add the item and then read
-the list back to learn it.
+**Watch for.** Address items by `uid`, never by name ([ADR-0029]). The
+materializer is the *one* legitimate exception: `add_item` cannot set a uid, so
+a scheduled chore and its materialized item can only be matched by name, which
+is exactly what the dedupe does. That is matching, not addressing — it still
+never passes a name to `update_item` or `remove_item`.
 
 ---
 
@@ -382,3 +423,7 @@ an event deleted on the iPhone disappears from the wall panel.
 [ADR-0022]: DECISIONS.md#adr-0022
 [ADR-0023]: DECISIONS.md#adr-0023
 [ADR-0024]: DECISIONS.md#adr-0024
+[ADR-0026]: DECISIONS.md#adr-0026
+[ADR-0028]: DECISIONS.md#adr-0028
+[ADR-0029]: DECISIONS.md#adr-0029
+[ADR-0030]: DECISIONS.md#adr-0030

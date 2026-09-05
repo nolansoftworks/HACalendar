@@ -1,0 +1,118 @@
+# The nightly chore materializer -- Phase 4.
+#
+# `todo` has no recurrence ([ADR-0008]), so "trash every Tuesday" is an RRULE
+# event on a person's chore schedule calendar, and this turns today's instances
+# into real items on their chore list. It is a plain automation on purpose:
+# `calendar.get_events` and `todo.get_items` both return a `response_variable`,
+# so nothing custom is needed.
+#
+# Three rules it must not break:
+#
+#   * Sweep completed items at 00:05 and nowhere else ([ADR-0022]).
+#     `todo.remove_completed_items` takes no filter -- it removes *every*
+#     completed item. Run it at any other hour and you erase a checkmark a
+#     child earned that afternoon.
+#   * Never bump an overdue item's due date ([ADR-0013]). A chore that was
+#     missed stays as one item whose due date recedes; that growing
+#     overdue-ness is the accountability signal. This automation therefore only
+#     ever *adds*, and only when nothing outstanding already has that name.
+#   * Nothing about the household is hardcoded ([ADR-0026], [ADR-0028]). The
+#     pairs are derived from HA's own label registry, so adding a person in the
+#     app is enough -- this file never changes.
+#
+# Loaded by `automation nightly_chores: !include_dir_merge_list automations/`
+# in configuration.yaml. Editing it in HA's UI is not possible, which is
+# correct: this is machinery, not household config.
+
+- id: hacalendar_chores_nightly
+  alias: Chores — sweep and materialize
+  description: >-
+    At 00:05, clears yesterday's completed chores and materializes today's
+    repeating ones onto each person's list. Derived from the "Chore schedule"
+    label; never edit this per household.
+  mode: single
+  triggers:
+    - trigger: time
+      at: "00:05:00"
+  conditions: []
+  actions:
+    # Every (schedule calendar -> chore list) pair in the house.
+    #
+    # A person is a label ([ADR-0026]). Their schedule calendar wears that
+    # label *and* the shared "Chore schedule" one ([ADR-0030]), so the owner is
+    # simply the other label on it, and their chore list is the todo entity
+    # wearing the same owner label.
+    - variables:
+        pairs: >-
+          {%- set sched = label_id('Chore schedule') -%}
+          {%- set ns = namespace(pairs=[]) -%}
+          {%- for cal in label_entities(sched) if cal.startswith('calendar.') -%}
+            {%- set owner = labels(cal) | reject('eq', sched) | list | first -%}
+            {%- if owner -%}
+              {%- set lists = label_entities(owner) | select('match', 'todo\.') | list -%}
+              {%- if lists -%}
+                {%- set ns.pairs = ns.pairs + [{'calendar': cal, 'todo': lists[0]}] -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ ns.pairs }}
+
+    - repeat:
+        for_each: "{{ pairs }}"
+        sequence:
+          # Captured now, because the inner repeat below shadows `repeat.item`.
+          - variables:
+              chore_calendar: "{{ repeat.item.calendar }}"
+              chore_list: "{{ repeat.item.todo }}"
+
+          # [ADR-0022]. First, so that a chore completed yesterday can be
+          # materialized again today, and so nothing done today is ever lost.
+          - action: todo.remove_completed_items
+            target:
+              entity_id: "{{ chore_list }}"
+
+          - action: calendar.get_events
+            target:
+              entity_id: "{{ chore_calendar }}"
+            data:
+              start_date_time: "{{ today_at('00:00') }}"
+              end_date_time: "{{ today_at('00:00') + timedelta(days=1) }}"
+            response_variable: scheduled
+
+          # Defaults to needs_action, which is what makes rollover work: an
+          # item missed for three weeks is still outstanding, so today's
+          # instance is skipped and its original due date survives ([ADR-0013]).
+          - action: todo.get_items
+            target:
+              entity_id: "{{ chore_list }}"
+            data:
+              status: needs_action
+            response_variable: outstanding
+
+          # Names, not uids: `todo.add_item` cannot set a uid, so a scheduled
+          # chore and its materialized item can only be matched by name. This
+          # is the one place a name is a legitimate key -- addressing an
+          # existing item still goes by uid everywhere else ([ADR-0029]).
+          - variables:
+              to_add: >-
+                {%- set open = outstanding[chore_list]['items']
+                      | map(attribute='summary') | map('trim') | map('lower') | list -%}
+                {%- set ns = namespace(add=[]) -%}
+                {%- for event in scheduled[chore_calendar]['events'] -%}
+                  {%- set name = event.summary | trim -%}
+                  {%- if name and name | lower not in open
+                         and name | lower not in (ns.add | map('lower') | list) -%}
+                    {%- set ns.add = ns.add + [name] -%}
+                  {%- endif -%}
+                {%- endfor -%}
+                {{ ns.add }}
+
+          - repeat:
+              for_each: "{{ to_add }}"
+              sequence:
+                - action: todo.add_item
+                  target:
+                    entity_id: "{{ chore_list }}"
+                  data:
+                    item: "{{ repeat.item }}"
+                    due_date: "{{ now().date() }}"

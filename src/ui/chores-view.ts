@@ -1,5 +1,6 @@
 import { LitElement, html, css, nothing } from "lit";
 import type { ChoreItem } from "../ha/chores.js";
+import type { ChoreRule } from "./repeat-rule.js";
 import type { Person } from "../people.js";
 import { readableTextOn, tint } from "./grid.js";
 import {
@@ -21,13 +22,22 @@ import {
  *
  * Presentational. The shell owns the subscriptions and does the writing.
  *
- * Fires `toggle-chore` ({ person, item }), `add-chore` ({ person }) and
+ * A repeating chore is *not* a row here. It is a rule on the person's chore
+ * schedule calendar that the nightly automation turns into a row each time it
+ * comes round ([ADR-0008]). The rules get their own quiet section at the foot
+ * of the column, because a wrong "every day" has to be cancellable from the
+ * same screen a child sees it on — and because the difference between "done
+ * for today" and "never again" is one a family has to be able to see.
+ *
+ * Fires `toggle-chore` ({ person, item }), `add-chore` ({ person }),
+ * `delete-chore` ({ person, item }), `delete-rule` ({ person, rule }) and
  * `make-list` ({ person }).
  */
 export class ChoresView extends LitElement {
   static override properties = {
     people: { attribute: false },
     itemsByList: { attribute: false },
+    rulesByCalendar: { attribute: false },
     now: { attribute: false },
     busyUids: { attribute: false },
     _confirmingUid: { state: true },
@@ -36,6 +46,8 @@ export class ChoresView extends LitElement {
   people: Person[] = [];
   /** chore list entity id -> its items, as HA last pushed them. */
   itemsByList: Map<string, ChoreItem[]> = new Map();
+  /** chore schedule calendar -> one row per repeating chore, not per instance. */
+  rulesByCalendar: Map<string, ChoreRule[]> = new Map();
   now: Date = new Date();
   /** Item uids with a write in flight, so a double tap can't double-fire. */
   busyUids: string[] = [];
@@ -93,6 +105,7 @@ export class ChoresView extends LitElement {
             ? html`<li class="none">Nothing on the list</li>`
             : items.map((item) => this.#row(person, item))}
         </ul>
+        ${this.#repeats(person)}
         <button
           class="add"
           @click=${() => this.#emit("add-chore", { person })}
@@ -100,6 +113,53 @@ export class ChoresView extends LitElement {
           + Add a chore
         </button>
       </section>
+    `;
+  }
+
+  #repeats(person: Person) {
+    const rules = person.choreCalendar
+      ? this.rulesByCalendar.get(person.choreCalendar) ?? []
+      : [];
+    if (!rules.length) return nothing;
+
+    return html`
+      <div class="repeats">
+        <h2>Happens again</h2>
+        <ul>
+          ${rules.map((rule) => {
+            const confirming = this._confirmingUid === rule.uid;
+            return html`
+              <li class="rule">
+                <span class="rule-text">
+                  <span class="summary">${rule.summary}</span>
+                  <span class="cadence">${rule.cadence}</span>
+                </span>
+                <button
+                  class="kill ${confirming ? "confirm" : ""}"
+                  aria-label=${confirming
+                    ? `Tap again to stop ${rule.summary} repeating`
+                    : `Stop ${rule.summary} repeating`}
+                  title=${confirming
+                    ? "Tap again to stop it"
+                    : "Stop this repeating"}
+                  @click=${() => {
+                    // Two taps, like deleting a chore: this cancels every
+                    // future one, not just today's.
+                    if (this._confirmingUid !== rule.uid) {
+                      this._confirmingUid = rule.uid;
+                      return;
+                    }
+                    this._confirmingUid = null;
+                    this.#emit("delete-rule", { person, rule });
+                  }}
+                >
+                  ${confirming ? "Stop it?" : "×"}
+                </button>
+              </li>
+            `;
+          })}
+        </ul>
+      </div>
     `;
   }
 
@@ -384,6 +444,48 @@ export class ChoresView extends LitElement {
       color: #c92a2a;
       font-weight: 700;
       opacity: 1;
+    }
+    .repeats {
+      margin: 2px 6px 0;
+      padding-top: 8px;
+      border-top: 1px solid #e6e8eb;
+    }
+    .repeats h2 {
+      margin: 0 4px 4px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      opacity: 0.45;
+    }
+    .repeats ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    li.rule {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 4px;
+    }
+    .rule-text {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-width: 0;
+      padding: 6px 8px;
+    }
+    .rule-text .summary {
+      font-size: 0.85rem;
+      opacity: 0.8;
+    }
+    .cadence {
+      font-size: 0.72rem;
+      opacity: 0.55;
+    }
+    li.rule .kill {
+      min-height: 44px;
     }
     .add,
     .make {

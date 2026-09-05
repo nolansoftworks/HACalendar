@@ -120,10 +120,27 @@ panel_custom:
     require_admin: false
     config:
       entity_id: calendar.family
+
+automation nightly_chores: !include_dir_merge_list automations/
 ```
 
 HA reads `panel_custom` **only at startup**. Edit this file, and you must
 `docker compose -f dev/docker-compose.yml restart`.
+
+That last line is what loads `dev/config/automations/chores-nightly.yaml`, the
+nightly chore materializer ([ADR-0008]). Two things worth knowing:
+
+- **Without the include, HA loads no automations at all — silently.** The
+  config API will still accept one over REST, return `{"result":"ok"}`, write
+  `automations.yaml`, and load nothing. There is no error anywhere; the only
+  symptom is that no `automation.*` entity exists. Verified 2026-09-04.
+- After editing the automation file, **Developer Tools → YAML → Reload
+  Automations** picks it up. A full restart is only needed for
+  `configuration.yaml` itself.
+
+The automation hardcodes nothing about the household — it derives every
+(schedule calendar → chore list) pair from HA's label registry ([ADR-0030]), so
+adding a person in the app is enough.
 
 ---
 
@@ -271,3 +288,5 @@ container's `TZ` agree.
 [ADR-0007]: DECISIONS.md#adr-0007
 [ADR-0011]: DECISIONS.md#adr-0011
 [ADR-0017]: DECISIONS.md#adr-0017
+[ADR-0008]: DECISIONS.md#adr-0008
+[ADR-0030]: DECISIONS.md#adr-0030
