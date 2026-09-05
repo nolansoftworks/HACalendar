@@ -21,6 +21,8 @@ import type { Person, Roster } from "../people.js";
 
 /** Only labels attached to a calendar entity are people. */
 export const CALENDAR_DOMAIN = "calendar.";
+/** A person's chore list carries the same label as their calendar. */
+export const TODO_DOMAIN = "todo.";
 
 interface LabelEntry {
   label_id: string;
@@ -61,13 +63,16 @@ export async function fetchRoster(
   ]);
 
   const calendarByLabel = new Map<string, string>();
+  const choreListByLabel = new Map<string, string>();
   for (const entity of entities) {
-    if (entity.entity_id.indexOf(CALENDAR_DOMAIN) !== 0) continue;
+    const isCalendar = entity.entity_id.indexOf(CALENDAR_DOMAIN) === 0;
+    const isTodo = entity.entity_id.indexOf(TODO_DOMAIN) === 0;
+    if (!isCalendar && !isTodo) continue;
+
     for (const labelId of entity.labels ?? []) {
-      // First calendar wins, so a label on two calendars stays deterministic.
-      if (!calendarByLabel.has(labelId)) {
-        calendarByLabel.set(labelId, entity.entity_id);
-      }
+      // First match wins, so a label on two entities stays deterministic.
+      const into = isCalendar ? calendarByLabel : choreListByLabel;
+      if (!into.has(labelId)) into.set(labelId, entity.entity_id);
     }
   }
 
@@ -75,11 +80,15 @@ export async function fetchRoster(
   for (const label of labels) {
     const calendar = calendarByLabel.get(label.label_id);
     if (!calendar) continue;
+    const choreList = choreListByLabel.get(label.label_id);
     people.push({
       id: label.label_id,
       name: label.name,
       color: label.color ?? FALLBACK_COLOR,
       calendar,
+      // Absent for anyone added before chore lists existed, or if theirs was
+      // deleted. The chores view offers to make one rather than breaking.
+      ...(choreList ? { choreList } : {}),
     });
   }
 
@@ -111,21 +120,26 @@ export async function createPerson(
     color,
   });
 
-  let entryId: string | null = null;
+  const entryIds: string[] = [];
   try {
-    entryId = await createCalendar(client, trimmed);
-    const entityId = await findCalendarEntity(client, entryId);
-    await client.callWS({
-      type: "config/entity_registry/update",
-      entity_id: entityId,
-      labels: [label.label_id],
+    const calendarEntry = await createEntry(client, "local_calendar", {
+      calendar_name: trimmed,
+      import: "create_empty",
     });
-    return {
-      id: label.label_id,
-      name: trimmed,
-      color,
-      calendar: entityId,
-    };
+    entryIds.push(calendarEntry);
+    const calendar = await findEntity(client, calendarEntry, CALENDAR_DOMAIN);
+    await label_(client, calendar, label.label_id);
+
+    // Everyone gets a chore list, adults included -- they appear in the
+    // "who did this?" picker and can own chores like anyone else.
+    const todoEntry = await createEntry(client, "local_todo", {
+      todo_list_name: `${trimmed} chores`,
+    });
+    entryIds.push(todoEntry);
+    const choreList = await findEntity(client, todoEntry, TODO_DOMAIN);
+    await label_(client, choreList, label.label_id);
+
+    return { id: label.label_id, name: trimmed, color, calendar, choreList };
   } catch (err) {
     // Roll back so a failed add doesn't leave debris behind.
     await client
@@ -134,11 +148,47 @@ export async function createPerson(
         label_id: label.label_id,
       })
       .catch(() => undefined);
-    if (entryId) {
+    for (const entryId of entryIds) {
       await client
         .callApi("DELETE", `config/config_entries/entry/${entryId}`)
         .catch(() => undefined);
     }
+    throw err;
+  }
+}
+
+/** Attach a label to an entity, replacing whatever it had. */
+async function label_(
+  client: HaClient,
+  entityId: string,
+  labelId: string,
+): Promise<void> {
+  await client.callWS({
+    type: "config/entity_registry/update",
+    entity_id: entityId,
+    labels: [labelId],
+  });
+}
+
+/**
+ * Give an existing person a chore list. Used for people added before chore
+ * lists existed, and when someone's list has been deleted out from under them.
+ */
+export async function createChoreList(
+  client: HaClient,
+  person: Person,
+): Promise<string> {
+  const entryId = await createEntry(client, "local_todo", {
+    todo_list_name: `${person.name} chores`,
+  });
+  try {
+    const choreList = await findEntity(client, entryId, TODO_DOMAIN);
+    await label_(client, choreList, person.id);
+    return choreList;
+  } catch (err) {
+    await client
+      .callApi("DELETE", `config/config_entries/entry/${entryId}`)
+      .catch(() => undefined);
     throw err;
   }
 }
@@ -173,11 +223,12 @@ export async function deletePerson(
   person: Person,
   deleteCalendar = false,
 ): Promise<void> {
-  if (person.calendar) {
+  for (const entityId of [person.calendar, person.choreList]) {
+    if (!entityId) continue;
     await client
       .callWS({
         type: "config/entity_registry/update",
-        entity_id: person.calendar,
+        entity_id: entityId,
         labels: [],
       })
       .catch(() => undefined);
@@ -188,48 +239,56 @@ export async function deletePerson(
     label_id: person.id,
   });
 
-  if (deleteCalendar && person.calendar) {
-    const entryId = await findConfigEntryFor(client, person.calendar);
+  if (!deleteCalendar) return;
+  for (const entityId of [person.calendar, person.choreList]) {
+    if (!entityId) continue;
+    const entryId = await findConfigEntryFor(client, entityId);
     if (entryId) {
-      await client.callApi("DELETE", `config/config_entries/entry/${entryId}`);
+      await client
+        .callApi("DELETE", `config/config_entries/entry/${entryId}`)
+        .catch(() => undefined);
     }
   }
 }
 
-/** Drive the `local_calendar` config flow. Returns the new entry id. */
-async function createCalendar(
+/**
+ * Drive a config entry flow to completion. Returns the new entry id.
+ *
+ * `local_calendar` and `local_todo` are both config-flow only and both
+ * scriptable over REST, which is the only reason this app can provision
+ * anything without sending someone into HA's settings.
+ */
+async function createEntry(
   client: HaClient,
-  calendarName: string,
+  handler: string,
+  answers: Record<string, unknown>,
 ): Promise<string> {
   const started = await client.callApi<{ flow_id: string; type: string }>(
     "POST",
     "config/config_entries/flow",
-    { handler: "local_calendar", show_advanced_options: false },
+    { handler, show_advanced_options: false },
   );
   const finished = await client.callApi<{
     type: string;
     result?: { entry_id: string };
-    errors?: unknown;
-  }>("POST", `config/config_entries/flow/${started.flow_id}`, {
-    calendar_name: calendarName,
-    import: "create_empty",
-  });
+  }>("POST", `config/config_entries/flow/${started.flow_id}`, answers);
 
   if (finished.type !== "create_entry" || !finished.result) {
-    throw new Error(`Home Assistant would not create a calendar for ${calendarName}.`);
+    throw new Error("Home Assistant would not create that.");
   }
   return finished.result.entry_id;
 }
 
 /**
- * The calendar entity belonging to a config entry.
+ * The entity of a given domain belonging to a config entry.
  *
  * The entity appears a moment after the flow completes, so this retries
  * briefly rather than assuming it is registered by the time we look.
  */
-async function findCalendarEntity(
+async function findEntity(
   client: HaClient,
   entryId: string,
+  domain: string,
 ): Promise<string> {
   for (let attempt = 0; attempt < 12; attempt++) {
     const entities = await client.callWS<
@@ -238,12 +297,12 @@ async function findCalendarEntity(
     const match = entities.filter(
       (entity) =>
         entity.config_entry_id === entryId &&
-        entity.entity_id.indexOf(CALENDAR_DOMAIN) === 0,
+        entity.entity_id.indexOf(domain) === 0,
     )[0];
     if (match) return match.entity_id;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error("The calendar was created but never appeared.");
+  throw new Error("It was created but never appeared.");
 }
 
 async function findConfigEntryFor(

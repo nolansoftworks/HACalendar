@@ -9,7 +9,14 @@ import {
   type HaCalendarEvent,
   type RecurrenceTarget,
 } from "../ha/calendar.js";
-import { fetchRoster } from "../ha/roster.js";
+import { createChoreList, fetchRoster } from "../ha/roster.js";
+import {
+  addChore,
+  logCompletion,
+  setChoreStatus,
+  subscribeChores,
+  type ChoreItem,
+} from "../ha/chores.js";
 import {
   addDays,
   readableTextOn,
@@ -24,15 +31,26 @@ import { viewLabel } from "./range-label.js";
 import { toEventInput } from "./event-form.js";
 import "./week-view.js";
 import "./month-view.js";
+import "./chores-view.js";
+import "./chore-dialog.js";
 import "./event-dialog.js";
 import "./people-settings.js";
 import type { DialogSaveDetail, EditScope } from "./event-dialog.js";
-import { DEFAULT_ROSTER, ROSTER_SETUP_HINT, type Roster } from "../people.js";
+import type { ChoreAddDetail, ChoreDialogMode } from "./chore-dialog.js";
+import { choreProgress } from "./chore-list.js";
+import {
+  DEFAULT_ROSTER,
+  ROSTER_SETUP_HINT,
+  type Person,
+  type Roster,
+} from "../people.js";
 
 /** Days in the week view. A real Sunday-to-Saturday week, not a rolling window. */
 const DAYS_IN_WEEK = 7;
 
 export type CalendarView = "week" | "month";
+/** Which rail destination is showing. */
+export type Section = "calendar" | "chores";
 
 interface CalendarTarget {
   entityId: string;
@@ -63,7 +81,14 @@ interface CalendarTarget {
 export class AppShell extends LitElement {
   static override properties = {
     client: { attribute: false },
+    _section: { state: true },
     _view: { state: true },
+    _chores: { state: true },
+    _choreBusy: { state: true },
+    _choreDialog: { state: true },
+    _chorePerson: { state: true },
+    _choreItem: { state: true },
+    _choreError: { state: true },
     _cursor: { state: true },
     _byCalendar: { state: true },
     _roster: { state: true },
@@ -84,7 +109,16 @@ export class AppShell extends LitElement {
 
   client!: HaClient;
 
+  _section: Section = "calendar";
   _view: CalendarView = "week";
+  /** chore list entity id -> its items, as HA last pushed them. */
+  _chores: Map<string, ChoreItem[]> = new Map();
+  /** Item uids with a write in flight, so a double tap cannot double-fire. */
+  _choreBusy: string[] = [];
+  _choreDialog: ChoreDialogMode | null = null;
+  _chorePerson: Person | null = null;
+  _choreItem: ChoreItem | null = null;
+  _choreError: string | null = null;
   /** In week view this is the first visible day; in month view, any day in it. */
   _cursor: Date = today();
   _byCalendar: Map<string, OwnedEvent[]> = new Map();
@@ -105,7 +139,9 @@ export class AppShell extends LitElement {
   _dialogError: string | null = null;
 
   #unsubscribes: Map<string, () => Promise<void>> = new Map();
+  #choreUnsubscribes: Map<string, () => Promise<void>> = new Map();
   #subscriptionToken = 0;
+  #choreToken = 0;
   #clock?: ReturnType<typeof setInterval>;
 
   override connectedCallback(): void {
@@ -120,6 +156,7 @@ export class AppShell extends LitElement {
     super.disconnectedCallback();
     if (this.#clock) clearInterval(this.#clock);
     void this.#teardown();
+    void this.#teardownChores();
   }
 
   override updated(changed: PropertyValues<this>): void {
@@ -134,6 +171,9 @@ export class AppShell extends LitElement {
       changed.has("_roster")
     ) {
       void this.#resubscribe();
+    }
+    if (changed.has("client") || changed.has("_roster")) {
+      void this.#resubscribeChores();
     }
   }
 
@@ -247,6 +287,51 @@ export class AppShell extends LitElement {
     this._failed = failed;
     if (failed.length && this.#unsubscribes.size === 0) {
       this._error = `Cannot read ${failed.join(", ")}`;
+    }
+  }
+
+  async #teardownChores(): Promise<void> {
+    const unsubscribes = [...this.#choreUnsubscribes.values()];
+    this.#choreUnsubscribes = new Map();
+    for (const unsubscribe of unsubscribes) {
+      try {
+        await unsubscribe();
+      } catch {
+        // Connection may already be gone.
+      }
+    }
+  }
+
+  /**
+   * Subscribe to every chore list. Kept live even on the calendar section,
+   * because the person strip's counts come from here too -- and HA pushes the
+   * whole list on change, so this is cheap.
+   */
+  async #resubscribeChores(): Promise<void> {
+    if (!this.client) return;
+    const token = ++this.#choreToken;
+    await this.#teardownChores();
+    this._chores = new Map();
+
+    for (const person of this._roster.people) {
+      const listId = person.choreList;
+      if (!listId) continue;
+      try {
+        const unsubscribe = await subscribeChores(this.client, listId, (items) => {
+          if (token !== this.#choreToken) return;
+          const next = new Map(this._chores);
+          next.set(listId, items);
+          this._chores = next;
+        });
+        if (token !== this.#choreToken) {
+          await unsubscribe();
+          return;
+        }
+        this.#choreUnsubscribes.set(listId, unsubscribe);
+      } catch {
+        // A missing list must not take the board down; the column offers to
+        // create one instead.
+      }
     }
   }
 
@@ -462,6 +547,92 @@ export class AppShell extends LitElement {
     this._byCalendar = next;
   }
 
+  // --- chores ---------------------------------------------------------------
+
+  #openAddChore(person: Person): void {
+    this._chorePerson = person;
+    this._choreItem = null;
+    this._choreError = null;
+    this._choreDialog = "add";
+  }
+
+  /**
+   * Ticking a chore asks who did it ([ADR-0018]); un-ticking does not.
+   * Undoing a mistake should cost one tap, and there is nothing to attribute.
+   */
+  #onToggleChore(person: Person, item: ChoreItem): void {
+    if (item.status === "completed") {
+      void this.#setChore(person, item, "needs_action", null);
+      return;
+    }
+    this._chorePerson = person;
+    this._choreItem = item;
+    this._choreError = null;
+    this._choreDialog = "who";
+  }
+
+  async #setChore(
+    person: Person,
+    item: ChoreItem,
+    status: ChoreItem["status"],
+    creditTo: string | null,
+  ): Promise<void> {
+    const listId = person.choreList;
+    if (!listId) return;
+
+    this._choreBusy = [...this._choreBusy, item.uid];
+    try {
+      // By uid, never by name -- a name silently no-ops against a duplicate
+      // ([ADR-0029]).
+      await setChoreStatus(this.client, listId, item.uid, status);
+      if (status === "completed" && creditTo) {
+        // Attribution is a nicety; losing it must not undo the checkmark.
+        await logCompletion(this.client, creditTo, item.summary, listId).catch(
+          () => undefined,
+        );
+      }
+      this.#closeChoreDialog();
+    } catch (err) {
+      this._choreError = errorMessage(err);
+    } finally {
+      this._choreBusy = this._choreBusy.filter((uid) => uid !== item.uid);
+    }
+  }
+
+  async #onAddChore(detail: ChoreAddDetail): Promise<void> {
+    const person = this._chorePerson;
+    if (!person || !person.choreList) return;
+    this._choreError = null;
+    try {
+      await addChore(this.client, person.choreList, detail.summary, detail.due);
+      this.#closeChoreDialog();
+    } catch (err) {
+      this._choreError = errorMessage(err);
+    }
+  }
+
+  async #onMakeList(person: Person): Promise<void> {
+    try {
+      await createChoreList(this.client, person);
+      await this.#loadRoster();
+    } catch (err) {
+      this._error = errorMessage(err);
+    }
+  }
+
+  #closeChoreDialog(): void {
+    this._choreDialog = null;
+    this._chorePerson = null;
+    this._choreItem = null;
+    this._choreError = null;
+  }
+
+  /** Chore counts for one person, for the header strip. */
+  #choreProgressFor(person: Person) {
+    const items = person.choreList ? this._chores.get(person.choreList) : null;
+    return choreProgress(items ?? [], this._now);
+  }
+
   // --- render -------------------------------------------------------------
 
   override render() {
@@ -474,9 +645,9 @@ export class AppShell extends LitElement {
     return html`
       <nav class="rail" aria-label="Sections">
         <span class="mark">${this._title.slice(0, 1).toUpperCase()}</span>
-        ${this.#railButton("calendar", "Calendar", true)}
-        ${this.#railButton("chores", "Chores", false)}
-        ${this.#railButton("lists", "Lists", false)}
+        ${this.#railButton("calendar")}
+        ${this.#railButton("chores")}
+        ${this.#railButton("lists")}
         <span class="rail-spacer"></span>
         <button
           class="rail-item"
@@ -494,6 +665,7 @@ export class AppShell extends LitElement {
           <h1>${this._title}</h1>
           <span class="clock">${formatClock(this._now)}</span>
           <span class="grow"></span>
+          ${this._section !== "calendar" ? nothing : html`
           <button id="prev" aria-label="Previous" @click=${() => this.#shift(-1)}>
             &lsaquo;
           </button>
@@ -527,6 +699,7 @@ export class AppShell extends LitElement {
               Month
             </button>
           </span>
+          `}
         </header>
 
         ${this._error
@@ -546,19 +719,32 @@ export class AppShell extends LitElement {
             const off = this._hidden.indexOf(target.ownerId) !== -1;
             // Stats ignore the filter: hiding someone must not zero their
             // counts, or the strip would stop telling you why you hid them.
+            const person = this._roster.people.filter(
+              (p) => p.id === target.ownerId,
+            )[0];
+            const chores =
+              this._section === "chores" && person
+                ? this.#choreProgressFor(person)
+                : null;
             const stats = personStats(
               this.#allEvents(),
               target.ownerId,
               this._now,
             );
-            const done = stats.total
-              ? Math.round((stats.past / stats.total) * 100)
+            const shownDone = chores ? chores.done : stats.past;
+            const shownTotal = chores ? chores.total : stats.total;
+            const badge = chores ? chores.overdue : stats.today;
+            const badgeWord = chores ? "late" : "today";
+            const done = shownTotal
+              ? Math.round((shownDone / shownTotal) * 100)
               : 0;
             return html`
               <button
                 class="person ${off ? "off" : ""}"
                 aria-pressed=${off ? "false" : "true"}
-                title="${target.label}: ${stats.past} of ${stats.total} done, ${stats.today} today"
+                title="${target.label}: ${shownDone} of ${shownTotal} ${
+                  chores ? "chores done" : "events past"
+                }"
                 @click=${() => this.#toggleOwner(target.ownerId)}
               >
                 <span
@@ -571,9 +757,11 @@ export class AppShell extends LitElement {
                 <span class="who">
                   <span class="name">${target.label}</span>
                   <span class="counts">
-                    <b>${stats.past}</b>/${stats.total}
-                    ${stats.today
-                      ? html`<span class="badge">${stats.today} today</span>`
+                    <b>${shownDone}</b>/${shownTotal}
+                    ${badge
+                      ? html`<span class="badge ${chores ? "overdue" : ""}"
+                          >${badge} ${badgeWord}</span
+                        >`
                       : nothing}
                   </span>
                   <span class="bar">
@@ -589,7 +777,23 @@ export class AppShell extends LitElement {
         </div>
 
         <div class="view">
-          ${this._view === "week"
+          ${this._section === "chores"
+            ? html`
+                <hacal-chores-view
+                  .people=${this._roster.people}
+                  .itemsByList=${this._chores}
+                  .now=${this._now}
+                  .busyUids=${this._choreBusy}
+                  @toggle-chore=${(
+                    e: CustomEvent<{ person: Person; item: ChoreItem }>,
+                  ) => this.#onToggleChore(e.detail.person, e.detail.item)}
+                  @add-chore=${(e: CustomEvent<{ person: Person }>) =>
+                    this.#openAddChore(e.detail.person)}
+                  @make-list=${(e: CustomEvent<{ person: Person }>) =>
+                    void this.#onMakeList(e.detail.person)}
+                ></hacal-chores-view>
+              `
+            : this._view === "week"
             ? html`
                 <hacal-week-view
                   .days=${this.#weekDays()}
@@ -617,6 +821,7 @@ export class AppShell extends LitElement {
         </div>
       </main>
 
+      ${this._section !== "calendar" ? nothing : html`
       <button
         class="fab"
         id="add-event"
@@ -624,7 +829,7 @@ export class AppShell extends LitElement {
         @click=${() => this.#openCreate(today())}
       >
         +
-      </button>
+      </button>`}
 
       ${this._settingsOpen
         ? html`
@@ -637,6 +842,34 @@ export class AppShell extends LitElement {
             ></hacal-people-settings>
           `
         : nothing}
+      ${this._choreDialog
+        ? html`
+            <hacal-chore-dialog
+              .mode=${this._choreDialog}
+              .person=${this._chorePerson}
+              .people=${this._roster.people}
+              .item=${this._choreItem}
+              .existing=${
+                this._chorePerson && this._chorePerson.choreList
+                  ? this._chores.get(this._chorePerson.choreList) ?? []
+                  : []
+              }
+              .busy=${this._choreBusy.length > 0}
+              .error=${this._choreError}
+              @chore-cancel=${this.#closeChoreDialog}
+              @chore-add=${(e: CustomEvent<ChoreAddDetail>) =>
+                void this.#onAddChore(e.detail)}
+              @chore-who=${(e: CustomEvent<{ personId: string }>) => {
+                const person = this._chorePerson;
+                const item = this._choreItem;
+                if (person && item) {
+                  void this.#setChore(person, item, "completed", e.detail.personId);
+                }
+              }}
+            ></hacal-chore-dialog>
+          `
+        : nothing}
+
       ${this._dialogMode
         ? html`
             <hacal-event-dialog
@@ -658,15 +891,21 @@ export class AppShell extends LitElement {
     `;
   }
 
-  #railButton(id: string, label: string, enabled: boolean) {
+  #railButton(id: string) {
+    const label = RAIL_LABELS[id] ?? id;
+    const section = id === "calendar" || id === "chores" ? (id as Section) : null;
+    const active = section !== null && this._section === section;
+
     return html`
       <button
-        class="rail-item ${id === "calendar" && enabled ? "on" : ""} ${enabled
-          ? ""
-          : "soon"}"
+        class="rail-item ${active ? "on" : ""} ${section ? "" : "soon"}"
         id="rail-${id}"
-        aria-disabled=${enabled ? "false" : "true"}
-        title=${enabled ? label : `${label} — coming soon`}
+        aria-current=${active ? "page" : "false"}
+        aria-disabled=${section ? "false" : "true"}
+        title=${section ? label : `${label} — not built yet`}
+        @click=${() => {
+          if (section) this._section = section;
+        }}
       >
         <span class="glyph">${RAIL_GLYPHS[id] ?? "•"}</span>
         <span class="label">${label}</span>
@@ -850,6 +1089,9 @@ export class AppShell extends LitElement {
       font-weight: 700;
       opacity: 1;
     }
+    .badge.overdue {
+      background: #c92a2a;
+    }
     .badge {
       margin-left: 5px;
       padding: 1px 6px;
@@ -919,6 +1161,12 @@ const RAIL_GLYPHS: Record<string, string> = {
   calendar: "🗓",
   chores: "✓",
   lists: "☰",
+};
+
+const RAIL_LABELS: Record<string, string> = {
+  calendar: "Calendar",
+  chores: "Chores",
+  lists: "Lists",
 };
 
 function today(): Date {

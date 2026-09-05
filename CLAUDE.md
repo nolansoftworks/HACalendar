@@ -194,10 +194,14 @@ src/ha/client.ts        HaClient — the seam both mount points share
 src/ha/calendar.ts      typed CRUD over calendar/event/*
 src/people.ts           roster vocabulary: Person, Roster, palette
 src/ha/roster.ts        roster read/write via HA's label registry (ADR-0026)
+src/ha/chores.ts        todo lists — ALWAYS address items by uid (ADR-0029)
 src/ui/app-shell.ts     the appliance shell: rail, header, views (ADR-0027)
 src/ui/week-view.ts     rolling day-column time grid — the default view
 src/ui/week-layout.ts   time-grid geometry — no lit, unit-tested
 src/ui/month-view.ts    the month grid — secondary view, presentational
+src/ui/chores-view.ts   the chore board, one column per person
+src/ui/chore-list.ts    chore ordering + overdue — no lit, unit-tested
+src/ui/chore-dialog.ts  add-a-chore, and who-did-this on check-off
 src/ui/event-dialog.ts  touch-first create/edit/delete sheet
 src/ui/person-picker.ts the "who?" picker (ADR-0018) -- reused in Phase 3
 src/ui/people-settings.ts add/edit/remove people, in-app (ADR-0026)

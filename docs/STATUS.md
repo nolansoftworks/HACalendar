@@ -1,11 +1,10 @@
 # Status
 
-**Last updated:** 2026-09-03
-**Current phase:** Phase 3 — Chores and the Today view (`docs/PLAN.md`)
-**Blocked on:** a person, for Phase 2 only. Its exit criterion is a
-non-technical adult using the touchscreen unaided, and the keyboard-occlusion
-check needs the real tablet. Neither can be closed from a script. Phase 2.5
-(the appliance shell, [ADR-0027]) is closed.
+**Last updated:** 2026-09-04
+**Current phase:** Phase 3 — Chores (`docs/PLAN.md`) — mechanics complete
+**Blocked on:** people, not protocols. Phase 2 needs a non-technical adult on
+the touchscreen; Phase 3 needs a child actually using the chore board. Neither
+can be closed from a script, and everything either one depends on is verified.
 
 Keep this file honest. The single most useful thing it does is separate what
 has been **observed** from what has only been **built**. A passing typecheck is
@@ -39,9 +38,14 @@ needed only if `configuration.yaml` changed. HA caches `/local/` hard — hard-
 refresh, or bump `module_url` to `panel.js?v=N`, or you will conclude the build
 is broken when it isn't.
 
-After that, **Phase 3** (chores and the Today view). The `todo` entities it
-needs can be provisioned the same way the calendars were, and the "who?" picker
-it reuses already exists from Phase 2.
+**Phase 3's mechanics are done.** Everyone has a chore list, the Chores rail
+destination works, check-off asks who did it and records that in the logbook,
+and overdue chores say how late they are in words. What is left is a child
+using it — plus Phase 4's nightly materializer for recurring chores.
+
+**Lists** is the one rail item still disabled. It has no phase of its own yet;
+the obvious shape is "every `todo.*` entity that isn't somebody's chore list",
+which would make the shopping list HA already ships appear for free.
 
 ---
 
@@ -111,6 +115,13 @@ Things actually observed, with the check that produced them.
 | **Week view is a real Sunday–Saturday week** | columns `Sun 30 … Sat 5`; Next advanced to `Sun 6 … Sat 12`; Today returned to the current week |
 | **Per-person counts in the header** | `1/1` past/total with a filled bar, and a `1 today` badge on the three people with events today |
 | **Counts ignore the filter toggles** | hiding a person leaves their numbers intact, so the strip still explains itself |
+| **The header names the visible range** | `August 30 – September 5, 2026` in week view, `September 2026` in month |
+| **Todo items are addressable by uid** | completing one of two identically-named items changed only that one |
+| **Addressing a todo by name silently no-ops** | with a duplicate present, `update_item` by name returned success and changed nothing |
+| **`local_todo` config flow is scriptable** | five chore lists provisioned and labelled without touching the HA UI |
+| **The rail navigates** | Chores switches section; Lists stays disabled and says so |
+| **Check-off writes through with attribution** | picked a sibling; chore completed on its owner's list and the logbook recorded `paxtyn — completed Take out trash` |
+| **Overdue is legible without colour** | "3 days late" in words, red edge, sorted to the top of the column |
 
 ---
 

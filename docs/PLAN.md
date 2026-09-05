@@ -131,7 +131,7 @@ rebuild nor a commit.
 
 ---
 
-## Phase 2 — Event CRUD 🔴 **← current**
+## Phase 2 — Event CRUD ✅ code complete
 
 Touch-first create / edit / delete. This is the phase that actually replaces
 the dry-erase board — until it lands, the app is read-only and useless to the
@@ -226,29 +226,44 @@ chore half, which is what the reference's `2/2` actually measures.
 
 ---
 
-## Phase 3 — Chores and the Today view
+## Phase 3 — Chores 🔴 **← current**
 
 Entity pairs per [ADR-0012]: `calendar.chores_<kid>` + `todo.chores_<kid>`.
 
-- [ ] One `local_todo` per kid, one chore `local_calendar` per kid
-- [ ] **Today view** ([ADR-0020]) — today's agenda plus every kid's chore list.
-      This becomes the kiosk default; the month grid moves one tap away.
-- [ ] Big-target check-off UI, obvious completion feedback
-- [ ] **"Who did this?" picker on check-off** ([ADR-0018]), then
+- [x] One `local_todo` per person — **everyone**, adults included, per the
+      household's decision. Provisioned through the scriptable config flow.
+- [x] ~~Today view~~ — replaced by the **Chores rail destination** ([ADR-0027]
+      superseded [ADR-0020]). One column per person, reachable in one tap.
+- [x] Big-target check-off UI, obvious completion feedback
+- [x] **"Who did this?" picker on check-off** ([ADR-0018]), then
       `todo.update_item(status: completed)` + `logbook.log(name: <id>, …)`
-- [ ] **Kids add tasks** ([ADR-0019]) — "who's adding this?" picker routes the
-      item to that person's list
+- [x] **Anyone adds chores** — the add dialog writes to that column's owner
 - [ ] ~~Duplicate-name refusal~~ — **cancelled by [ADR-0029]**. Items carry a
       `uid` and are addressable by it, so duplicates corrupt nothing. Address
       by uid everywhere; never pass a name to `update_item`/`remove_item`,
       which silently no-ops when a duplicate exists. The UI may *mention* an
       existing item of the same name, but must not refuse the add.
-- [ ] Overdue items visibly overdue — this is the accountability signal
-      ([ADR-0013])
-- [ ] Kids must not need to read fluently to use it
+- [x] Overdue items visibly overdue — this is the accountability signal
+      ([ADR-0013]). "3 days late" in words, a red edge, and sorted to the top
+      of the column, longest-overdue first.
+- [ ] Kids must not need to read fluently to use it — **needs real children**.
+      Status is carried by words, colour, a checkbox and a strikethrough rather
+      than colour alone, but whether a five-year-old can work it is not
+      something automation can answer.
 
-**Exit criterion:** a child adds a task, picks their name, checks it off
-unprompted, it stays checked across a reload, and the logbook shows who did it.
+**Mechanics verified, exit criterion still open.** Driven end to end against
+the live instance: the rail navigates, all five columns render, an overdue
+chore says "2 days late" and sorts to the top, ticking one opens the *who did
+this?* picker, choosing a **sibling** completed the chore on its owner's list
+and wrote `paxtyn — completed Take out trash` to the logbook against
+`todo.grayson_chores`. Un-ticking skips the picker, because undoing a mistake
+should cost one tap and there is nothing to attribute. Adding a chore whose
+name already exists is *mentioned* and then allowed, and both copies came back
+with distinct uids.
+
+The exit criterion is about a child, not a protocol: *a child adds a task,
+picks their name, checks it off unprompted, it stays checked across a reload,
+and the logbook shows who did it.* Nobody's children have tried it.
 
 ---
 
