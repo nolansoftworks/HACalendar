@@ -942,6 +942,53 @@ shows `2/2` per person, and this is the calendar half of that.
 
 ---
 
+## ADR-0029
+
+**Todo items are addressed by `uid`, never by name. Duplicate names are allowed.**
+
+Status: **Accepted** · 2026-09-04 · corrects [ADR-0019] and gotcha 7
+
+**Evidence** — live probe against HA 2026.7.2, 2026-09-04, on a throwaway
+`local_todo` list:
+
+- `todo/item/list` returns `{summary, uid, status, due}` per item. Items **have
+  uids**.
+- `todo.update_item` and `todo.remove_item` both accept that uid in the `item:`
+  field. With two items named "Dishes", completing one **by uid** left the other
+  at `needs_action`.
+- Calling `update_item` with the **name** while a duplicate existed was accepted
+  with no error and **changed nothing**. Silent, not loud.
+- `local_todo` is created through the same scriptable config flow as
+  `local_calendar` ([ADR-0026]), so per-kid lists need no clicking either.
+- `todo/item/subscribe` exists and pushes the full list on every change, exactly
+  like `calendar/event/subscribe`.
+- `todo.remove_completed_items` really does take no filter — it swept every
+  completed item across the list. [ADR-0022] stands.
+
+**What this overturns.** [ADR-0019] and gotcha 7 both rested on "items are
+addressed by name, so two same-named items are unaddressable", and concluded
+that refusing duplicates was *data integrity, not polish*. That premise is
+false. The conclusion therefore does not follow.
+
+**Decision.**
+
+- Address every todo item by `uid`. A name must never be passed to
+  `update_item` or `remove_item`; that is the actual failure mode, and it fails
+  silently.
+- **Do not block duplicate names.** A child adding "Dishes" when "Dishes"
+  already exists is not corrupting anything. The UI may point out the existing
+  one — two identical rows are confusing to read — but it must not refuse a
+  legitimate add on integrity grounds that do not exist.
+- `todo.remove_item` gives us single-item removal, so nothing is forced to wait
+  for the nightly sweep to tidy one row.
+
+**Why this matters beyond tidiness.** The old rule would have had Phase 3 build
+a refusal dialog for a problem that does not exist, in an app whose users are
+children. That is a worse product *and* more code, justified by a constraint
+nobody had tested.
+
+---
+
 [ADR-0001]: #adr-0001
 [ADR-0002]: #adr-0002
 [ADR-0003]: #adr-0003
@@ -964,5 +1011,6 @@ shows `2/2` per person, and this is the calendar half of that.
 [ADR-0026]: #adr-0026
 [ADR-0027]: #adr-0027
 [ADR-0028]: #adr-0028
+[ADR-0029]: #adr-0029
 [Phase 1]: PLAN.md#phase-1--live-month-view--current
 [Phase 4]: PLAN.md#phase-4--recurring-chores

@@ -83,10 +83,20 @@ a nice-to-have.**
    Point this app at Google or CalDAV and edit/delete throw. No type error, no
    warning. Only `local_calendar` implements all three.
 
-7. **Todo items are addressed by name.** `todo.update_item` takes `item:` (the
-   name); `todo.add_item` cannot set a UID. Two same-named items in one list are
-   unaddressable. Chore names must be unique per list — an API constraint, not a
-   style choice.
+7. **Todo items DO have uids — always address them that way.** Verified against
+   HA 2026.7.2 on 2026-09-04. `todo/item/list` returns a `uid` per item, and
+   both `todo.update_item` and `todo.remove_item` accept that uid in the `item:`
+   field. Completing one of two identically-named items by uid changed exactly
+   that one and left its twin alone.
+
+   What is still true: `todo.add_item` cannot *set* a uid, and HA happily
+   accepts duplicate names. And addressing **by name** when a duplicate exists
+   is the trap — HA accepted the call, returned no error, and **silently did
+   nothing**. Never pass a name to `update_item` or `remove_item`.
+
+   This file previously said same-named items were "unaddressable" and that
+   unique names were "an API constraint, not a style choice". Both were wrong;
+   see [ADR-0029].
 
 8. **Never bump an overdue chore's due date.** The growing overdue-ness *is* the
    record that it was missed ([ADR-0013]). "Refreshing" it destroys that.
@@ -100,9 +110,11 @@ a nice-to-have.**
     ([ADR-0017]). Collapsing to a single entity looks like a simplification and
     silently destroys filtering, coloring, and Phase 6 sync.
 
-11. **Duplicate task names corrupt a list** ([ADR-0019]). Since items are
-    addressed by name, adding a duplicate makes *both* unaddressable. Refuse it
-    in the UI. This is data integrity, not polish.
+11. **Duplicate task names are a clarity problem, not a corruption one**
+    ([ADR-0019], corrected by [ADR-0029]). Addressing by uid makes them
+    perfectly safe. Two identical rows are still confusing for a child staring
+    at a chore list, so the UI may still warn — but as a kindness, not as data
+    integrity, and it must never block a legitimate add.
 
 12. **HA omits empty event fields; it does not send `null`.** Verified against
     2026.7.2. An all-day event with no description arrives as exactly
@@ -132,6 +144,7 @@ a nice-to-have.**
 [ADR-0026]: docs/DECISIONS.md#adr-0026
 [ADR-0027]: docs/DECISIONS.md#adr-0027
 [ADR-0028]: docs/DECISIONS.md#adr-0028
+[ADR-0029]: docs/DECISIONS.md#adr-0029
 
 ## Environment bug on this machine
 

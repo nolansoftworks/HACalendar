@@ -238,16 +238,17 @@ Entity pairs per [ADR-0012]: `calendar.chores_<kid>` + `todo.chores_<kid>`.
       `todo.update_item(status: completed)` + `logbook.log(name: <id>, …)`
 - [ ] **Kids add tasks** ([ADR-0019]) — "who's adding this?" picker routes the
       item to that person's list
-- [ ] **Duplicate-name refusal.** A task duplicating an existing incomplete item
-      on the same list makes *both* unaddressable. Catch it in the UI, refuse
-      kindly. This is data integrity, not polish.
+- [ ] ~~Duplicate-name refusal~~ — **cancelled by [ADR-0029]**. Items carry a
+      `uid` and are addressable by it, so duplicates corrupt nothing. Address
+      by uid everywhere; never pass a name to `update_item`/`remove_item`,
+      which silently no-ops when a duplicate exists. The UI may *mention* an
+      existing item of the same name, but must not refuse the add.
 - [ ] Overdue items visibly overdue — this is the accountability signal
       ([ADR-0013])
 - [ ] Kids must not need to read fluently to use it
 
 **Exit criterion:** a child adds a task, picks their name, checks it off
 unprompted, it stays checked across a reload, and the logbook shows who did it.
-Adding a duplicate name produces a friendly refusal, not a corrupted list.
 
 ---
 
@@ -277,10 +278,9 @@ support `response_variable`. **No custom integration.**
 automation twice adds nothing; skipping a week leaves one increasingly-overdue
 item, not two.
 
-**Watch for.** Chore names must be unique within a list — `todo.update_item`
-addresses items *by name* and `add_item` cannot set a UID, so same-named items
-are unaddressable through HA's API. This is a hard API constraint, not a
-convention we can relax.
+**Watch for.** Address items by `uid`, never by name ([ADR-0029]). `add_item`
+still cannot *set* a uid, so the materializer must add the item and then read
+the list back to learn it.
 
 ---
 
