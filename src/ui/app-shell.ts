@@ -13,6 +13,7 @@ import { createChoreList, fetchRoster } from "../ha/roster.js";
 import {
   addChore,
   logCompletion,
+  removeChore,
   setChoreStatus,
   subscribeChores,
   type ChoreItem,
@@ -36,7 +37,7 @@ import "./chore-dialog.js";
 import "./event-dialog.js";
 import "./people-settings.js";
 import type { DialogSaveDetail, EditScope } from "./event-dialog.js";
-import type { ChoreAddDetail, ChoreDialogMode } from "./chore-dialog.js";
+import type { ChoreAddDetail } from "./chore-dialog.js";
 import { choreProgress } from "./chore-list.js";
 import {
   DEFAULT_ROSTER,
@@ -85,9 +86,7 @@ export class AppShell extends LitElement {
     _view: { state: true },
     _chores: { state: true },
     _choreBusy: { state: true },
-    _choreDialog: { state: true },
-    _chorePerson: { state: true },
-    _choreItem: { state: true },
+    _choreAddFor: { state: true },
     _choreError: { state: true },
     _cursor: { state: true },
     _byCalendar: { state: true },
@@ -115,9 +114,8 @@ export class AppShell extends LitElement {
   _chores: Map<string, ChoreItem[]> = new Map();
   /** Item uids with a write in flight, so a double tap cannot double-fire. */
   _choreBusy: string[] = [];
-  _choreDialog: ChoreDialogMode | null = null;
-  _chorePerson: Person | null = null;
-  _choreItem: ChoreItem | null = null;
+  /** Whose list the add-a-chore dialog is for, or null when it is closed. */
+  _choreAddFor: Person | null = null;
   _choreError: string | null = null;
   /** In week view this is the first visible day; in month view, any day in it. */
   _cursor: Date = today();
@@ -550,25 +548,35 @@ export class AppShell extends LitElement {
   // --- chores ---------------------------------------------------------------
 
   #openAddChore(person: Person): void {
-    this._chorePerson = person;
-    this._choreItem = null;
     this._choreError = null;
-    this._choreDialog = "add";
+    this._choreAddFor = person;
   }
 
   /**
-   * Ticking a chore asks who did it ([ADR-0018]); un-ticking does not.
-   * Undoing a mistake should cost one tap, and there is nothing to attribute.
+   * Ticking a chore completes it immediately -- one tap, no question.
+   *
+   * We used to ask "who did this?" ([ADR-0018]'s third call site), but the
+   * chore already sits on somebody's list, so the answer was on screen. The
+   * completion is still credited to the list's owner in the logbook, which is
+   * what [ADR-0014] actually needs; we just stopped making a child confirm it.
    */
   #onToggleChore(person: Person, item: ChoreItem): void {
-    if (item.status === "completed") {
-      void this.#setChore(person, item, "needs_action", null);
-      return;
+    const next = item.status === "completed" ? "needs_action" : "completed";
+    void this.#setChore(person, item, next, person.id);
+  }
+
+  async #onDeleteChore(person: Person, item: ChoreItem): Promise<void> {
+    const listId = person.choreList;
+    if (!listId) return;
+    this._choreBusy = [...this._choreBusy, item.uid];
+    try {
+      // By uid, never by name ([ADR-0029]).
+      await removeChore(this.client, listId, item.uid);
+    } catch (err) {
+      this._error = errorMessage(err);
+    } finally {
+      this._choreBusy = this._choreBusy.filter((uid) => uid !== item.uid);
     }
-    this._chorePerson = person;
-    this._choreItem = item;
-    this._choreError = null;
-    this._choreDialog = "who";
   }
 
   async #setChore(
@@ -600,7 +608,7 @@ export class AppShell extends LitElement {
   }
 
   async #onAddChore(detail: ChoreAddDetail): Promise<void> {
-    const person = this._chorePerson;
+    const person = this._choreAddFor;
     if (!person || !person.choreList) return;
     this._choreError = null;
     try {
@@ -621,9 +629,7 @@ export class AppShell extends LitElement {
   }
 
   #closeChoreDialog(): void {
-    this._choreDialog = null;
-    this._chorePerson = null;
-    this._choreItem = null;
+    this._choreAddFor = null;
     this._choreError = null;
   }
 
@@ -722,10 +728,16 @@ export class AppShell extends LitElement {
             const person = this._roster.people.filter(
               (p) => p.id === target.ownerId,
             )[0];
-            const chores =
-              this._section === "chores" && person
-                ? this.#choreProgressFor(person)
-                : null;
+            const allChores = person ? this.#choreProgressFor(person) : null;
+            const chores = this._section === "chores" ? allChores : null;
+            // On the calendar, say whether they owe chores *today*.
+            const choresToday =
+              this._section === "calendar" && allChores
+                ? allChores.dueToday + allChores.overdue
+                : 0;
+            // Filtering is a calendar idea. On the chore board every column is
+            // already separate, so graying a name out just looked broken.
+            const filterable = this._section === "calendar";
             const stats = personStats(
               this.#allEvents(),
               target.ownerId,
@@ -740,12 +752,16 @@ export class AppShell extends LitElement {
               : 0;
             return html`
               <button
-                class="person ${off ? "off" : ""}"
-                aria-pressed=${off ? "false" : "true"}
+                class="person ${filterable && off ? "off" : ""} ${
+                  filterable ? "" : "static"
+                }"
+                aria-pressed=${filterable ? (off ? "false" : "true") : "false"}
                 title="${target.label}: ${shownDone} of ${shownTotal} ${
                   chores ? "chores done" : "events past"
                 }"
-                @click=${() => this.#toggleOwner(target.ownerId)}
+                @click=${() => {
+                  if (filterable) this.#toggleOwner(target.ownerId);
+                }}
               >
                 <span
                   class="dot"
@@ -761,6 +777,12 @@ export class AppShell extends LitElement {
                     ${badge
                       ? html`<span class="badge ${chores ? "overdue" : ""}"
                           >${badge} ${badgeWord}</span
+                        >`
+                      : nothing}
+                    ${choresToday
+                      ? html`<span class="badge chores"
+                          >${choresToday}
+                          ${choresToday === 1 ? "chore" : "chores"}</span
                         >`
                       : nothing}
                   </span>
@@ -789,6 +811,9 @@ export class AppShell extends LitElement {
                   ) => this.#onToggleChore(e.detail.person, e.detail.item)}
                   @add-chore=${(e: CustomEvent<{ person: Person }>) =>
                     this.#openAddChore(e.detail.person)}
+                  @delete-chore=${(
+                    e: CustomEvent<{ person: Person; item: ChoreItem }>,
+                  ) => void this.#onDeleteChore(e.detail.person, e.detail.item)}
                   @make-list=${(e: CustomEvent<{ person: Person }>) =>
                     void this.#onMakeList(e.detail.person)}
                 ></hacal-chores-view>
@@ -842,16 +867,13 @@ export class AppShell extends LitElement {
             ></hacal-people-settings>
           `
         : nothing}
-      ${this._choreDialog
+      ${this._choreAddFor
         ? html`
             <hacal-chore-dialog
-              .mode=${this._choreDialog}
-              .person=${this._chorePerson}
-              .people=${this._roster.people}
-              .item=${this._choreItem}
+              .person=${this._choreAddFor}
               .existing=${
-                this._chorePerson && this._chorePerson.choreList
-                  ? this._chores.get(this._chorePerson.choreList) ?? []
+                this._choreAddFor.choreList
+                  ? this._chores.get(this._choreAddFor.choreList) ?? []
                   : []
               }
               .busy=${this._choreBusy.length > 0}
@@ -859,13 +881,6 @@ export class AppShell extends LitElement {
               @chore-cancel=${this.#closeChoreDialog}
               @chore-add=${(e: CustomEvent<ChoreAddDetail>) =>
                 void this.#onAddChore(e.detail)}
-              @chore-who=${(e: CustomEvent<{ personId: string }>) => {
-                const person = this._chorePerson;
-                const item = this._choreItem;
-                if (person && item) {
-                  void this.#setChore(person, item, "completed", e.detail.personId);
-                }
-              }}
             ></hacal-chore-dialog>
           `
         : nothing}
@@ -1091,6 +1106,12 @@ export class AppShell extends LitElement {
     }
     .badge.overdue {
       background: #c92a2a;
+    }
+    .badge.chores {
+      background: #495057;
+    }
+    .person.static {
+      cursor: default;
     }
     .badge {
       margin-left: 5px;

@@ -30,6 +30,7 @@ export class ChoresView extends LitElement {
     itemsByList: { attribute: false },
     now: { attribute: false },
     busyUids: { attribute: false },
+    _confirmingUid: { state: true },
   };
 
   people: Person[] = [];
@@ -38,6 +39,8 @@ export class ChoresView extends LitElement {
   now: Date = new Date();
   /** Item uids with a write in flight, so a double tap can't double-fire. */
   busyUids: string[] = [];
+  /** Which row is awaiting a second tap on its delete button. */
+  _confirmingUid: string | null = null;
 
   #emit(name: string, detail: unknown): void {
     this.dispatchEvent(
@@ -139,9 +142,10 @@ export class ChoresView extends LitElement {
     const late = isOverdue(item, this.now);
     const busy = this.busyUids.indexOf(item.uid) !== -1;
     const lateDays = daysOverdue(item, this.now);
+    const confirming = this._confirmingUid === item.uid;
 
     return html`
-      <li>
+      <li class="row ${confirming ? "confirming" : ""}">
         <button
           class="chore ${done ? "done" : ""} ${late ? "late" : ""}"
           ?disabled=${busy}
@@ -165,6 +169,25 @@ export class ChoresView extends LitElement {
                   ? html`<span class="when">${formatDue(item.due)}</span>`
                   : nothing}
           </span>
+        </button>
+        <button
+          class="kill ${confirming ? "confirm" : ""}"
+          ?disabled=${busy}
+          aria-label=${confirming
+            ? `Tap again to delete ${item.summary}`
+            : `Delete ${item.summary}`}
+          title=${confirming ? "Tap again to delete" : "Delete this chore"}
+          @click=${() => {
+            // Two taps, because deleting is not undoable and fingers slip.
+            if (this._confirmingUid !== item.uid) {
+              this._confirmingUid = item.uid;
+              return;
+            }
+            this._confirmingUid = null;
+            this.#emit("delete-chore", { person, item });
+          }}
+        >
+          ${confirming ? "Delete?" : "×"}
         </button>
       </li>
     `;
@@ -259,6 +282,38 @@ export class ChoresView extends LitElement {
     }
     li {
       margin-bottom: 6px;
+    }
+    li.row {
+      display: flex;
+      align-items: stretch;
+      gap: 4px;
+    }
+    li.row .chore {
+      flex: 1;
+      min-width: 0;
+    }
+    .kill {
+      flex: 0 0 44px;
+      min-height: 56px;
+      padding: 0;
+      background: #fff;
+      border: none;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 1.3rem;
+      line-height: 1;
+      color: #b0b4bb;
+      cursor: pointer;
+    }
+    .kill.confirm {
+      flex: 0 0 5.5rem;
+      background: #8c1d18;
+      color: #fff;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+    .kill[disabled] {
+      opacity: 0.4;
     }
     .none {
       padding: 10px 8px;

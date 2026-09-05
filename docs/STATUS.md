@@ -122,6 +122,10 @@ Things actually observed, with the check that produced them.
 | **The rail navigates** | Chores switches section; Lists stays disabled and says so |
 | **Check-off writes through with attribution** | picked a sibling; chore completed on its owner's list and the logbook recorded `paxtyn — completed Take out trash` |
 | **Overdue is legible without colour** | "3 days late" in words, red edge, sorted to the top of the column |
+| **Check-off is one tap** | ticking completes immediately with no dialog; the logbook still records it |
+| **Deleting a chore needs two taps** | first tap shows "Delete?", nothing removed; second removed exactly that item by uid |
+| **The strip does not filter on the chore board** | chips render `static`; tapping a name changed nothing and no column vanished |
+| **The calendar strip shows chores due today** | "2 chores" on the people who owe some, counting due-today plus overdue |
 
 ---
 

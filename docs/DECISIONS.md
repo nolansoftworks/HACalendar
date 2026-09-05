@@ -480,8 +480,18 @@ profile-based**. Rather than infer a person, the app asks:
 | Moment | Question | Effect |
 |---|---|---|
 | Creating an event | who is this for? | selects target `calendar.<person>` ([ADR-0017]) |
-| Adding a task | who's adding this? | selects target `todo.chores_<person>` |
-| Completing a chore | who did this? | `logbook.log` attribution ([ADR-0014]) |
+| Adding a task | who's adding this? | selects the target chore list |
+| ~~Completing a chore~~ | ~~who did this?~~ | **dropped 2026-09-04** — see below |
+
+> **The third call site is gone.** Asking "who did this?" on check-off was
+> built and then removed the same day, at the household's request: the chore
+> already sits on somebody's list, so the question answered itself while
+> costing a child an extra tap on the one interaction they perform most.
+> Completion is still written to the logbook against the list owner's roster
+> id, so [ADR-0014]'s history survives intact — we stopped asking, not
+> recording. The cost is that a sibling doing someone else's chore is now
+> credited to the owner; the household judged the extra tap the worse trade,
+> and the picker can come back if that ever bites.
 
 One component, one roster ([ADR-0021]), three call sites.
 

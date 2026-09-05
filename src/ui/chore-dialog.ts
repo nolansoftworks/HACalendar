@@ -3,9 +3,6 @@ import type { ChoreItem } from "../ha/chores.js";
 import type { Person } from "../people.js";
 import { findDuplicate } from "./chore-list.js";
 import { formatDate } from "./event-form.js";
-import "./person-picker.js";
-
-export type ChoreDialogMode = "add" | "who";
 
 export interface ChoreAddDetail {
   summary: string;
@@ -13,40 +10,32 @@ export interface ChoreAddDetail {
 }
 
 /**
- * Two small chore dialogs sharing one shell.
+ * Adding a chore to somebody's list.
  *
- * **add** — name the chore, optionally give it a due date. If an outstanding
- * chore already has that name it says so, but does **not** refuse: items are
- * addressed by uid, so duplicates break nothing ([ADR-0029]). Refusing a
- * child's legitimate entry to prevent a corruption that cannot happen would be
- * the worse bug.
+ * If an outstanding chore already has that name it says so, but does **not**
+ * refuse: items are addressed by uid, so duplicates break nothing
+ * ([ADR-0029]). Refusing a child's legitimate entry to prevent a corruption
+ * that cannot happen would be the worse bug.
  *
- * **who** — *"who did this?"* on check-off ([ADR-0018]). Attribution, not auth:
- * anyone may pick anyone, and a sibling emptying the dishwasher is exactly the
- * case this exists for. The chore stays on its owner's list either way.
+ * There was briefly a second mode here — *"who did this?"* on check-off. It
+ * has gone: the chore already sits on somebody's list, so the question
+ * answered itself and cost a child an extra tap. Completion is still credited
+ * to the list's owner in the logbook, which is what [ADR-0014] needs.
  *
- * Fires `chore-add`, `chore-who` and `chore-cancel`.
+ * Fires `chore-add` and `chore-cancel`.
  */
 export class ChoreDialog extends LitElement {
   static override properties = {
-    mode: { type: String },
     person: { attribute: false },
-    people: { attribute: false },
-    item: { attribute: false },
     existing: { attribute: false },
     busy: { type: Boolean },
     error: { type: String },
     _summary: { state: true },
     _due: { state: true },
-    _who: { state: true },
   };
 
-  mode: ChoreDialogMode = "add";
-  /** Whose list is being added to, or whose chore is being ticked. */
+  /** Whose list is being added to. */
   person: Person | null = null;
-  /** Everyone, for the "who did this?" picker. */
-  people: Person[] = [];
-  item: ChoreItem | null = null;
   /** The current list, used only to notice a same-named chore. */
   existing: ChoreItem[] = [];
   busy = false;
@@ -54,19 +43,16 @@ export class ChoreDialog extends LitElement {
 
   _summary = "";
   _due = "";
-  _who = "";
 
   #initialized = false;
 
   override willUpdate(changed: PropertyValues<this>): void {
-    if (this.#initialized && !changed.has("mode") && !changed.has("item")) return;
+    if (this.#initialized && !changed.has("person")) return;
     this.#initialized = true;
     this._summary = "";
     // Default a new chore to today: a chore with no date never becomes
     // overdue, and overdue-ness is the whole accountability signal ([ADR-0013]).
     this._due = formatDate(new Date());
-    // Pre-select the list's owner -- usually right, and one tap either way.
-    this._who = this.person ? this.person.id : "";
   }
 
   #cancel(): void {
@@ -76,28 +62,13 @@ export class ChoreDialog extends LitElement {
   }
 
   #submit(): void {
-    if (this.mode === "add") {
-      if (!this._summary.trim()) {
-        this.error = "Give the chore a name.";
-        return;
-      }
-      this.dispatchEvent(
-        new CustomEvent<ChoreAddDetail>("chore-add", {
-          detail: { summary: this._summary.trim(), due: this._due },
-          bubbles: true,
-          composed: true,
-        }),
-      );
-      return;
-    }
-
-    if (!this._who) {
-      this.error = "Tap a name.";
+    if (!this._summary.trim()) {
+      this.error = "Give the chore a name.";
       return;
     }
     this.dispatchEvent(
-      new CustomEvent("chore-who", {
-        detail: { personId: this._who },
+      new CustomEvent<ChoreAddDetail>("chore-add", {
+        detail: { summary: this._summary.trim(), due: this._due },
         bubbles: true,
         composed: true,
       }),
@@ -105,67 +76,46 @@ export class ChoreDialog extends LitElement {
   }
 
   override render() {
-    const adding = this.mode === "add";
-    const clash = adding ? findDuplicate(this.existing, this._summary) : null;
+    const clash = findDuplicate(this.existing, this._summary);
 
     return html`
       <div class="scrim" @click=${this.#cancel}></div>
       <div class="sheet" role="dialog" aria-modal="true">
-        <h1>
-          ${adding
-            ? `Add a chore for ${this.person?.name ?? ""}`
-            : "Who did this?"}
-        </h1>
-        ${!adding && this.item
-          ? html`<p class="lede">${this.item.summary}</p>`
-          : nothing}
+        <h1>Add a chore for ${this.person?.name ?? ""}</h1>
         ${this.error
           ? html`<p class="error" role="alert">${this.error}</p>`
           : nothing}
 
-        ${adding
-          ? html`
-              <label class="field">
-                <span>What needs doing?</span>
-                <input
-                  id="chore-name"
-                  type="text"
-                  .value=${this._summary}
-                  placeholder="Feed the dog"
-                  @input=${(e: Event) => {
-                    this._summary = (e.target as HTMLInputElement).value;
-                  }}
-                />
-              </label>
-              ${clash
-                ? html`<p class="note" role="status">
-                    ${this.person?.name ?? "They"} already has a
-                    “${clash.summary}” to do. Adding another is fine — it just
-                    means two.
-                  </p>`
-                : nothing}
-              <label class="field">
-                <span>Due</span>
-                <input
-                  id="chore-due"
-                  type="date"
-                  .value=${this._due}
-                  @input=${(e: Event) => {
-                    this._due = (e.target as HTMLInputElement).value;
-                  }}
-                />
-              </label>
-            `
-          : html`
-              <hacal-person-picker
-                .people=${this.people}
-                .selected=${this._who}
-                heading=""
-                @pick=${(e: CustomEvent<{ ownerId: string }>) => {
-                  this._who = e.detail.ownerId;
-                }}
-              ></hacal-person-picker>
-            `}
+        <label class="field">
+          <span>What needs doing?</span>
+          <input
+            id="chore-name"
+            type="text"
+            .value=${this._summary}
+            placeholder="Feed the dog"
+            @input=${(e: Event) => {
+              this._summary = (e.target as HTMLInputElement).value;
+            }}
+          />
+        </label>
+        ${clash
+          ? html`<p class="note" role="status">
+              ${this.person?.name ?? "They"} already has a
+              “${clash.summary}” to do. Adding another is fine — it just means
+              two.
+            </p>`
+          : nothing}
+        <label class="field">
+          <span>Due</span>
+          <input
+            id="chore-due"
+            type="date"
+            .value=${this._due}
+            @input=${(e: Event) => {
+              this._due = (e.target as HTMLInputElement).value;
+            }}
+          />
+        </label>
 
         <div class="actions">
           <span class="spacer"></span>
@@ -178,7 +128,7 @@ export class ChoreDialog extends LitElement {
             ?disabled=${this.busy}
             @click=${this.#submit}
           >
-            ${this.busy ? "Saving…" : adding ? "Add" : "Done"}
+            ${this.busy ? "Saving…" : "Add"}
           </button>
         </div>
       </div>

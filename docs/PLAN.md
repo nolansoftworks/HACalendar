@@ -235,8 +235,12 @@ Entity pairs per [ADR-0012]: `calendar.chores_<kid>` + `todo.chores_<kid>`.
 - [x] ~~Today view~~ — replaced by the **Chores rail destination** ([ADR-0027]
       superseded [ADR-0020]). One column per person, reachable in one tap.
 - [x] Big-target check-off UI, obvious completion feedback
-- [x] **"Who did this?" picker on check-off** ([ADR-0018]), then
-      `todo.update_item(status: completed)` + `logbook.log(name: <id>, …)`
+- [x] Check-off is **one tap** — `todo.update_item(status: completed)` plus
+      `logbook.log(name: <id>, …)` credited to the list's owner. The
+      "who did this?" picker was built and then removed at the household's
+      request; see the note on [ADR-0018].
+- [x] **Delete a chore** — two taps on the row's ×, since deleting is not
+      undoable. Uses `todo.remove_item` by uid, so it needs no sweep.
 - [x] **Anyone adds chores** — the add dialog writes to that column's owner
 - [ ] ~~Duplicate-name refusal~~ — **cancelled by [ADR-0029]**. Items carry a
       `uid` and are addressable by it, so duplicates corrupt nothing. Address
@@ -253,13 +257,16 @@ Entity pairs per [ADR-0012]: `calendar.chores_<kid>` + `todo.chores_<kid>`.
 
 **Mechanics verified, exit criterion still open.** Driven end to end against
 the live instance: the rail navigates, all five columns render, an overdue
-chore says "2 days late" and sorts to the top, ticking one opens the *who did
-this?* picker, choosing a **sibling** completed the chore on its owner's list
-and wrote `paxtyn — completed Take out trash` to the logbook against
-`todo.grayson_chores`. Un-ticking skips the picker, because undoing a mistake
-should cost one tap and there is nothing to attribute. Adding a chore whose
-name already exists is *mentioned* and then allowed, and both copies came back
-with distinct uids.
+chore says "2 days late" and sorts to the top, ticking one completes it
+immediately and writes the completion to the logbook against its owner's roster
+id, and deleting takes two taps and then removes exactly that item. Adding a
+chore whose name already exists is *mentioned* and then allowed, and both
+copies came back with distinct uids.
+
+The person strip is informational on the chore board — the columns are already
+separate, so filtering there only made a name look broken. On the calendar it
+still filters, and now also shows how many chores each person owes **today**,
+counting anything due today plus anything already overdue.
 
 The exit criterion is about a child, not a protocol: *a child adds a task,
 picks their name, checks it off unprompted, it stays checked across a reload,
